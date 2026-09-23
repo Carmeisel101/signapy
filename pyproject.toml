@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "signapy"
+dynamic = ["version"]
+description = "Exploratory feature discovery for labeled datasets: find, quantify, localize, and validate predictive signal."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Carlos Meisel" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=2.0",
+    "scipy>=1.10",
+]
+keywords = ["feature discovery", "exploratory data analysis", "statistics", "data science"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = [
+    "packaging>=23.0",
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[tool.hatch.version]
+path = "src/signapy/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/signapy"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+# Warnings (e.g. pandas/numpy deprecations, divide-by-zero) are errors:
+# silent numerical problems are unacceptable in a statistics library.
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "NPY", # numpy-specific rules
+    "RUF", # ruff-specific rules
+]
