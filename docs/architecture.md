@@ -190,9 +190,10 @@ src/signapy/
 │   ├── (inference)    # planned: propose semantic types from data
 │   └── (summary)      # planned: missingness, cardinality, prevalence
 ├── metrics/           # pure statistics: arrays/tables in, numbers out
-│   ├── (association)  # planned: Cramér's V, Phi, Spearman, point-biserial
-│   ├── (significance) # planned: chi-square and other tests
-│   └── (lift)         # planned: support, target rate, lift, risk diff, OR
+│   ├── association.py  # implemented: cramers_v (categorical, Phi/Spearman/
+│   │                    #   point-biserial for other feature types planned)
+│   ├── significance.py # implemented: chi_square, ChiSquareResult
+│   └── lift.py          # implemented: categorical_lift, CategoricalValueMetrics
 ├── discovery/         # user-facing workflows: type → method → results
 │   ├── (feature)      # planned: feature-level discovery
 │   └── (value)        # planned: value-level discovery
@@ -233,21 +234,70 @@ value-level discovery: support, target count, target rate,
 
 Suggested implementation order:
 
-1. `metrics/association.py`: `cramers_v(contingency_table)`
-2. `metrics/significance.py`: chi-square test via `scipy.stats`
-3. `metrics/lift.py`: per-value support, target count, target rate, lift
+1. `metrics/association.py`: `cramers_v(contingency_table)` — **implemented**
+2. `metrics/significance.py`: chi-square test via `scipy.stats` — **implemented**
+3. `metrics/lift.py`: per-value support, target count, target rate, lift —
+   **implemented**
 4. `discovery/feature.py` and `discovery/value.py`: build `FeatureResult`
-   and `ValueResult`
+   and `ValueResult` — not yet started
 5. `signapy.discover()`: minimal entry point, binary target and categorical
-   features only, and an explicit error for anything unsupported
-6. An example in `examples/`
+   features only, and an explicit error for anything unsupported — not yet
+   started
+6. An example in `examples/` — not yet started
 
-Open decisions to settle in that slice (and record here):
+Steps 1-3 (the pure metrics layer) are implemented, on branch
+`feature/categorical-metrics`. They are deliberately **not wired into
+`discovery` or `results` yet**: `signapy.discover()` still does not exist,
+and `metrics` functions return their own small result types
+(`ChiSquareResult`, `CategoricalValueMetrics`), not `FeatureResult` /
+`ValueResult`. That wiring is the next task.
 
-- how the positive class of a binary target is determined and overridden
-- missing-value policy: missing as its own category vs excluded
-- Cramér's V bias correction (Bergsma 2013), yes or no
-- handling of degenerate tables (single level, zero expected counts)
+### Settled decisions (metrics layer)
+
+- **Positive class:** `categorical_lift` takes an explicit, required
+  `positive_class` keyword argument. The metrics layer does not guess which
+  class is "positive" — that inference (or a user override) belongs to the
+  discovery layer that will call it.
+- **Missing values:** rejected, not silently dropped or treated as their own
+  category. All three metrics functions raise `ValueError` if given missing
+  values (NaN in a contingency table, or `NaN`/`None` in `feature`/`target`).
+  This keeps `metrics` policy-free; the discovery layer decides how to
+  handle missingness (e.g. as its own category) before calling down.
+- **Cramér's V bias correction:** `cramers_v(..., bias_correction=True)` by
+  default, implementing the Bergsma (2013) small-sample correction.
+  `bias_correction=False` gives the standard (Cramér, 1946) formula. The
+  corrected estimator can become undefined for small, sparse tables (the
+  corrected dimensions collapse to ≤1 category); this raises a clear
+  `ValueError` rather than returning `NaN` or a nonsensical value, and the
+  error message suggests retrying with `bias_correction=False`.
+- **Chi-square continuity correction:** `chi_square()` and the chi-square
+  statistic inside `cramers_v()` both call
+  `scipy.stats.chi2_contingency(table, correction=False)` — no Yates'
+  continuity correction — so the two are consistent with each other and with
+  direct `scipy` cross-checks.
+- **Degenerate tables:** a contingency table must be 2D, non-empty, at least
+  2×2, contain only finite, non-negative, **integer-valued** counts, and
+  have no row or column summing to zero (which would make an expected
+  frequency zero/undefined). Any violation raises `ValueError` before scipy
+  is called. Integer-valued counts are required (not just non-negative
+  values) because the bias-corrected Cramér's V treats the table sum as a
+  literal observation count `n`; fractional/weighted tables silently
+  corrupt that correction rather than raising, e.g. `cramers_v([[0.1, 0.1],
+  [0.1, 0.1]])` (a table proportional to independence) returned ~0.79
+  instead of 0.0 before this check was added. Weighted/proportional tables
+  are not supported by this metrics layer.
+- **Unobserved positive class:** `categorical_lift` requires a binary target
+  (exactly two distinct observed classes), and separately requires that
+  `positive_class` be one of those two observed values. A `positive_class`
+  that was not observed is treated primarily as an **invalid argument** (in
+  practice almost always a typo) and raises its own `ValueError` naming
+  `positive_class` and the classes that were actually observed — not framed
+  as the statistical "zero baseline rate" edge case, since those are
+  different failure modes even though, given a binary target, they are the
+  same underlying condition. A `baseline_rate == 0.0` check remains as a
+  defensive fallback (technically unreachable given the checks above) rather
+  than letting a future change to those checks silently produce a division
+  by zero.
 
 Tests must be deterministic and use small synthetic datasets whose expected
 statistics are known (hand-computed, or checked against `scipy.stats`).
