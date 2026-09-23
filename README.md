@@ -77,8 +77,11 @@ report.feature("acquisition_channel").values  # value-level results
 ```
 
 Available now: the result models that this API will return
-(`signapy.results.FeatureResult`, `ValueResult`, `DiscoveryReport`) and the
-semantic type enums (`signapy.profiling.FeatureType`, `TargetType`).
+(`signapy.results.FeatureResult`, `ValueResult`, `DiscoveryReport`), the
+semantic type enums (`signapy.profiling.FeatureType`, `TargetType`), and the
+low-level, pure statistical building blocks in `signapy.metrics` —
+`association.cramers_v`, `significance.chi_square`, and
+`lift.categorical_lift` — which are not yet wired into `discover()`.
 
 ## Planned v0.1 scope
 
