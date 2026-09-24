@@ -250,7 +250,10 @@ Steps 1-3 (the pure metrics layer) are implemented, on branch
 `discovery` or `results` yet**: `signapy.discover()` still does not exist,
 and `metrics` functions return their own small result types
 (`ChiSquareResult`, `CategoricalValueMetrics`), not `FeatureResult` /
-`ValueResult`. That wiring is the next task.
+`ValueResult`. That wiring is the next task. For how to choose between and
+interpret these three metrics as a user, see
+[`docs/metrics.md`](metrics.md); this section stays focused on
+implementation decisions.
 
 ### Settled decisions (metrics layer)
 
