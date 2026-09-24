@@ -81,7 +81,9 @@ Available now: the result models that this API will return
 semantic type enums (`signapy.profiling.FeatureType`, `TargetType`), and the
 low-level, pure statistical building blocks in `signapy.metrics` —
 `association.cramers_v`, `significance.chi_square`, and
-`lift.categorical_lift` — which are not yet wired into `discover()`.
+`lift.categorical_lift` — which are not yet wired into `discover()`. See
+[`docs/metrics.md`](docs/metrics.md) for how to choose between and interpret
+these metrics.
 
 ## Planned v0.1 scope
 
