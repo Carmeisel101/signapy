@@ -183,7 +183,7 @@ uncertainty context over raw p-values.
 
 ```text
 src/signapy/
-├── __init__.py        # public API surface; currently only __version__
+├── __init__.py        # public API surface: __version__, discover (implemented)
 ├── py.typed           # PEP 561 marker: the package ships type hints
 ├── profiling/         # "what data is this?"
 │   ├── types.py       # FeatureType, TargetType (implemented)
@@ -195,8 +195,9 @@ src/signapy/
 │   ├── significance.py # implemented: chi_square, ChiSquareResult
 │   └── lift.py          # implemented: categorical_lift, CategoricalValueMetrics
 ├── discovery/         # user-facing workflows: type → method → results
-│   ├── (feature)      # planned: feature-level discovery
-│   └── (value)        # planned: value-level discovery
+│   ├── __init__.py     # implemented: discover(df, target, *, positive_class)
+│   ├── feature.py       # implemented: analyze_categorical_feature
+│   └── value.py          # implemented: build_value_results
 └── results/
     └── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
 ```
@@ -211,9 +212,10 @@ Rules:
   return numbers or small tuples. This keeps them easy to test against known
   values.
 - **`discovery` owns decisions.** It maps `(feature_type, target_type)` to
-  methods, handles missing values, and builds result models. A top-level
-  `signapy.discover(df, target=...)` will be the main entry point. It is
-  exported only once it works.
+  methods, handles missing values, and builds result models. The top-level
+  `signapy.discover(df, target=..., *, positive_class=...)` is the main
+  entry point, exported from `signapy.discovery` and re-exported as
+  `signapy.discover`.
 - **`profiling` owns types.** Type inference and user overrides live here.
 - **No `utils` package until there is real shared code.** Avoid catch-all
   modules.
@@ -221,7 +223,7 @@ Rules:
 Modules marked "planned" are **not created as empty files**. Add each one
 together with its implementation and tests.
 
-## 10. First vertical slice (next milestone)
+## 10. First vertical slice — **implemented**
 
 ```text
 binary target + categorical feature
@@ -232,28 +234,32 @@ value-level discovery: support, target count, target rate,
                        baseline target rate, categorical lift
 ```
 
-Suggested implementation order:
+Implementation order (all complete, on branches `feature/categorical-metrics`
+and `feature/binary-categorical-discovery`):
 
 1. `metrics/association.py`: `cramers_v(contingency_table)` — **implemented**
 2. `metrics/significance.py`: chi-square test via `scipy.stats` — **implemented**
 3. `metrics/lift.py`: per-value support, target count, target rate, lift —
    **implemented**
 4. `discovery/feature.py` and `discovery/value.py`: build `FeatureResult`
-   and `ValueResult` — not yet started
+   and `ValueResult` — **implemented**
 5. `signapy.discover()`: minimal entry point, binary target and categorical
-   features only, and an explicit error for anything unsupported — not yet
-   started
-6. An example in `examples/` — not yet started
+   features only, and an explicit error for anything unsupported —
+   **implemented**
+6. An example in `examples/` — **implemented**
+   (`examples/binary_categorical_discovery.py`)
 
-Steps 1-3 (the pure metrics layer) are implemented, on branch
-`feature/categorical-metrics`. They are deliberately **not wired into
-`discovery` or `results` yet**: `signapy.discover()` still does not exist,
-and `metrics` functions return their own small result types
-(`ChiSquareResult`, `CategoricalValueMetrics`), not `FeatureResult` /
-`ValueResult`. That wiring is the next task. For how to choose between and
-interpret these three metrics as a user, see
-[`docs/metrics.md`](metrics.md); this section stays focused on
-implementation decisions.
+The pure metrics layer (steps 1-3) is now wired into `discovery` and
+`results` (steps 4-5): `signapy.discover(df, target=..., *,
+positive_class=...)` is a real, exported entry point that returns a
+`DiscoveryReport` of `FeatureResult`/`ValueResult` objects. `metrics`
+functions still return their own small result types (`ChiSquareResult`,
+`CategoricalValueMetrics`) — `discovery/feature.py` and `discovery/value.py`
+are exactly the adapter layer that converts those into
+`FeatureResult`/`ValueResult`, so `metrics` itself stays unaware of
+`results`. For how to choose between and interpret the three underlying
+metrics as a user, see [`docs/metrics.md`](metrics.md); this section stays
+focused on implementation decisions.
 
 ### Settled decisions (metrics layer)
 
@@ -301,6 +307,59 @@ implementation decisions.
   defensive fallback (technically unreachable given the checks above) rather
   than letting a future change to those checks silently produce a division
   by zero.
+
+### Settled decisions (discovery layer)
+
+`signapy.discover(df, target, *, positive_class)` is a thin orchestration
+layer: DataFrame-level validation, missing-data policy, and dtype policy
+live here; the actual statistics stay in `metrics`.
+
+- **Missing-data policy.** Two independent passes, in this order:
+  1. Rows with a missing `target` are excluded from **all** analysis (their
+     outcome is unknown, so they can't support any feature's evidence).
+  2. For each feature independently, rows with a missing value for *that*
+     feature are excluded from *that feature's* analysis only — a missing
+     value in one feature does not affect another feature's results.
+
+  Consequences of this policy, reflected directly in `FeatureResult` fields:
+  - `n` is the number of rows with both a non-missing `target` and a
+    non-missing value for that particular feature.
+  - `missing_rate` is the fraction of *target-valid* rows (not all of
+    `df`) where that feature is missing.
+  - Value-level `baseline_rate` and `lift` are computed from the exact same
+    feature-valid rows used for that feature's Cramér's V and chi-square —
+    there is one contingency table per feature, and both the feature-level
+    and value-level evidence for that feature come from it.
+
+  Missing values are never treated as their own category and never
+  imputed. This is a discovery-layer decision, not a metrics-layer one: the
+  underlying `metrics` functions continue to reject missing values outright
+  (see the metrics-layer decisions above); `discovery/feature.py` is what
+  drops them before calling down.
+- **Categorical feature dtype policy.** Only pandas `object`, `string`, and
+  `category` dtype columns are treated as categorical features. Numeric
+  columns — including integer-coded categories like `0, 1, 2` — and `bool`
+  columns are rejected with an explicit `ValueError` naming the column and
+  its dtype, not silently reinterpreted as categorical. This is deliberate:
+  SignaPy does not yet infer semantic type from values (see [§6, Planned
+  types](#6-planned-types)), so guessing that an integer or boolean column
+  is "really" categorical would be exactly the kind of silent policy
+  decision this project avoids. A future profiling/type-override feature is
+  the right place to let a user say "treat this numeric/boolean column as
+  categorical" explicitly.
+- **DataFrame-level validation, checked before any per-feature work:** an
+  unknown `target` column, an empty `df`, a `target` whose non-missing
+  values are not exactly two distinct classes, and a `positive_class` not
+  among those two classes are all rejected with a `ValueError` up front.
+  Per-feature problems (unsupported dtype, fewer than two observed
+  categories once that feature's missing values are dropped, or an
+  otherwise-invalid contingency table) are still surfaced with a clear
+  error, but only when that feature is reached — column order in `df` is
+  preserved for `DiscoveryReport.features`, so which feature's error
+  surfaces first follows `df`'s own column order.
+- **`df` is never mutated.** `discover()` only reads from `df` (boolean
+  masking and column selection, which return copies/views, not in-place
+  operations).
 
 Tests must be deterministic and use small synthetic datasets whose expected
 statistics are known (hand-computed, or checked against `scipy.stats`).
