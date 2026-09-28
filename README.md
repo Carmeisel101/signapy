@@ -4,10 +4,10 @@
 
 Long-term mission: *find, quantify, localize, and validate predictive signal.*
 
-> **Status: pre-alpha (`0.1.0.dev0`).** The package structure, type vocabulary,
-> and result models exist. **No discovery functionality is implemented yet.**
-> Everything under [Planned usage](#planned-usage) describes intended behavior,
-> not current behavior.
+> **Status: pre-alpha (`0.1.0.dev0`).** `signapy.discover()` works for one
+> slice today: **a binary target against categorical features.** Everything
+> under [Planned next](#planned-next) — other feature/target types,
+> interactions, stability, and more — is not implemented yet.
 
 ## The problem
 
@@ -62,32 +62,37 @@ pytest
 Runtime dependencies are `numpy`, `pandas`, and `scipy`. SignaPy doesn't
 depend on any ML framework.
 
-## Planned usage
-
-> **Not implemented yet.** This is the target API.
+## Usage
 
 ```python
 import signapy
 
-report = signapy.discover(df, target="converted")
+report = signapy.discover(df, target="converted", positive_class=True)
 
 report.features  # feature-level results
 report.feature("acquisition_channel")  # one feature's evidence
 report.feature("acquisition_channel").values  # value-level results
 ```
 
-Available now: the result models that this API will return
-(`signapy.results.FeatureResult`, `ValueResult`, `DiscoveryReport`), the
-semantic type enums (`signapy.profiling.FeatureType`, `TargetType`), and the
-low-level, pure statistical building blocks in `signapy.metrics` —
-`association.cramers_v`, `significance.chi_square`, and
-`lift.categorical_lift` — which are not yet wired into `discover()`. See
-[`docs/metrics.md`](docs/metrics.md) for how to choose between and interpret
-these metrics.
+`discover()` currently supports **categorical features against a binary
+target** (see [v0.1 scope](#v01-scope) below): every non-target column of
+`df` with an `object`, pandas `string`, or pandas `category` dtype is
+analyzed; other dtypes (numeric, boolean) raise a clear error rather than
+being silently reinterpreted. See [`docs/metrics.md`](docs/metrics.md) for
+how to choose between and interpret `effect_size` (Cramér's V), `p_value`
+(chi-square), and the value-level `lift`, and
+[`examples/binary_categorical_discovery.py`](examples/binary_categorical_discovery.py)
+for a runnable, printed example.
 
-## Planned v0.1 scope
+Also available: the low-level, pure statistical building blocks in
+`signapy.metrics` (`association.cramers_v`, `significance.chi_square`,
+`lift.categorical_lift`) that `discover()` is built on, the result models
+(`signapy.results.FeatureResult`, `ValueResult`, `DiscoveryReport`), and the
+semantic type enums (`signapy.profiling.FeatureType`, `TargetType`).
 
-The first capability is one end-to-end vertical slice:
+## v0.1 scope
+
+The first capability is one end-to-end vertical slice, implemented:
 
 - **Target:** binary classification
 - **Feature:** categorical
@@ -95,9 +100,19 @@ The first capability is one end-to-end vertical slice:
 - **Value-level:** support, target count, target rate, baseline target rate,
   and categorical lift
 
-More feature types, target types, and methods follow once this slice has
-proven the architecture. See [`docs/architecture.md`](docs/architecture.md) for
-the full design.
+See [`docs/architecture.md`](docs/architecture.md) for the full design,
+including the missing-data and categorical-dtype policies this slice
+follows.
+
+## Planned next
+
+Not yet implemented: boolean features, semantic type overrides (e.g.
+integer-coded categories), continuous and ordinal features, multiclass
+targets, additional value-level metrics (risk difference, odds ratio,
+confidence intervals), interaction discovery, and stability analysis. See
+the [discovery hierarchy](#discovery-hierarchy) above and
+[`docs/architecture.md`](docs/architecture.md) for how these fit the overall
+design.
 
 ## Versioning
 
