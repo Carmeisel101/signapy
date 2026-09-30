@@ -129,6 +129,27 @@ def cramers_v(
 _MIN_POINT_BISERIAL_OBSERVATIONS = 3
 
 
+def _is_boolean_array(array: np.ndarray, original: npt.ArrayLike) -> bool:
+    """Whether ``array`` (converted from ``original``) is boolean-valued.
+
+    Catches plain ``bool``/``numpy.bool_`` dtype arrays, pandas nullable
+    ``boolean`` dtype (detected from ``original``, since converting through
+    :func:`numpy.asarray` loses that dtype), and boolean values stored in
+    an ``object``-dtype array (e.g. ``numpy.array([True, False],
+    dtype=object)``) — which ``pandas.api.types.is_bool_dtype`` alone does
+    not catch, and which would otherwise coerce through
+    ``pandas.to_numeric`` as ``1.0``/``0.0`` without ever being flagged as
+    boolean.
+    """
+    if pd.api.types.is_bool_dtype(array.dtype):
+        return True
+    if isinstance(getattr(original, "dtype", None), pd.BooleanDtype):
+        return True
+    if array.dtype == object and len(array) > 0:
+        return all(isinstance(value, bool | np.bool_) for value in array)
+    return False
+
+
 @dataclass(frozen=True)
 class PointBiserialResult:
     """Point-biserial correlation between a continuous feature and a binary target.
@@ -188,12 +209,17 @@ def point_biserial(
     positive or the negative class" — it has a sign.
 
     Args:
-        feature: A 1D array-like of continuous (numeric) values, one per
-            row. Accepts Python numeric sequences, :class:`numpy.ndarray`,
-            :class:`pandas.Series` (including pandas nullable numeric
-            dtypes, once missing values are resolved), integer- or
-            float-valued measurements. Boolean values are rejected — a
-            boolean feature is categorical, not continuous.
+        feature: A 1D array-like of continuous, real-valued (numeric)
+            measurements, one per row. Accepts Python numeric sequences,
+            :class:`numpy.ndarray`, :class:`pandas.Series` (including
+            pandas nullable numeric dtypes, once missing values are
+            resolved), integer- or float-valued measurements. Rejected as
+            not being a continuous measurement: boolean values (categorical,
+            not continuous — including boolean values stored in an
+            ``object``-dtype array/Series, not just true ``bool``/nullable
+            ``boolean`` dtype), datetime and timedelta values (calendar
+            dates and durations, not measurements), and complex values
+            (not real-valued).
         target: A 1D array-like of target labels, one per row, positionally
             aligned with ``feature`` (not by pandas index, if both are
             ``Series`` — see :func:`signapy.metrics.lift.categorical_lift`
@@ -210,10 +236,12 @@ def point_biserial(
 
     Raises:
         ValueError: If ``feature`` or ``target`` is not one-dimensional, if
-            they have different lengths, if either is empty, if either
-            contains missing values, if ``feature`` is boolean or otherwise
-            not numeric, if ``feature`` contains a non-finite value (``inf``
-            or ``-inf``), if ``target`` does not have exactly two distinct
+            ``feature`` is boolean (including boolean values stored with
+            ``object`` dtype), datetime-, timedelta-, or complex-valued, or
+            otherwise not real-valued numeric, if they have different
+            lengths, if either is empty, if either contains missing values,
+            if ``feature`` contains a non-finite value (``inf`` or
+            ``-inf``), if ``target`` does not have exactly two distinct
             values, if ``positive_class`` is not one of them, if fewer than
             :data:`_MIN_POINT_BISERIAL_OBSERVATIONS` total observations
             remain, or if ``feature`` is constant (zero variance, making
@@ -234,14 +262,27 @@ def point_biserial(
             f"target must be one-dimensional, got shape {target_array.shape}"
         )
 
-    is_boolean_feature = pd.api.types.is_bool_dtype(feature_array.dtype) or isinstance(
-        getattr(feature, "dtype", None), pd.BooleanDtype
-    )
-    if is_boolean_feature:
+    if _is_boolean_array(feature_array, feature):
         raise ValueError(
             "feature must not be boolean; a boolean feature is categorical, "
             "not continuous, and unsupported by point_biserial in this "
             "release (see signapy.metrics.lift.categorical_lift instead)"
+        )
+    if pd.api.types.is_datetime64_any_dtype(
+        feature_array.dtype
+    ) or pd.api.types.is_timedelta64_dtype(feature_array.dtype):
+        raise ValueError(
+            f"feature must not be datetime- or timedelta-valued (got dtype "
+            f"{feature_array.dtype}); point_biserial treats values as "
+            "continuous measurements, not calendar dates or durations — "
+            "convert to a numeric measurement (e.g. days since a reference "
+            "date) before calling if that's what you intend"
+        )
+    if np.issubdtype(feature_array.dtype, np.complexfloating):
+        raise ValueError(
+            f"feature must be real-valued (got dtype {feature_array.dtype}); "
+            "point_biserial does not support complex numbers, which would "
+            "otherwise be silently truncated to their real component"
         )
 
     if len(feature_array) != len(target_array):
