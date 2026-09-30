@@ -331,11 +331,12 @@ focused on implementation decisions.
     feature's original units. `PointBiserialResult.__post_init__` enforces
     this as an invariant (within floating-point tolerance) rather than
     trusting callers to keep the two consistent.
-  - Boolean feature values are explicitly rejected with their own error
-    (distinct from the generic "must be numeric" one): a boolean column is
-    categorical, not continuous, and belongs to `categorical_lift`/
-    `cramers_v` instead — this metric never silently coerces `True`/`False`
-    to `1`/`0` as if it were an ordinary continuous measurement.
+  - The feature is validated value by value before numeric conversion, so
+    only genuine real numeric measurements are accepted. In particular,
+    boolean, datetime, timedelta, complex, and string representations are
+    rejected even when hidden in an `object`-dtype array. This keeps pandas
+    coercion from silently defining the metric's input semantics. The
+    function docstring owns the exhaustive user-facing validation contract.
   - Non-finite feature values (`inf`, `-inf`) are rejected outright, not
     treated as missing and dropped — a caller who wants to exclude them
     needs to do that explicitly, since silently dropping them would be a
