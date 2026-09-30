@@ -88,8 +88,11 @@ class FeatureResult:
         values: Value-level results, or ``None`` if value-level discovery was
             not performed for this feature. An empty tuple is not used to
             mean "not performed".
-        details: Method-specific numbers, e.g. ``{"statistic": 12.3,
-            "dof": 2}``.
+        details: Method-specific numbers, e.g. ``{"statistic": 12.3, "dof": 2}``
+            for a categorical feature, or ``{"positive_n": 150, "positive_mean":
+            42.1, ...}`` for a continuous one. Both integer counts and
+            floating-point measurements are legitimate here, represented
+            honestly rather than coerced to one type.
     """
 
     feature: str
@@ -102,7 +105,7 @@ class FeatureResult:
     test_method: str | None = None
     p_value: float | None = None
     values: tuple[ValueResult, ...] | None = None
-    details: Mapping[str, float] = field(default_factory=dict)
+    details: Mapping[str, float | int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _check_count("n", self.n)
