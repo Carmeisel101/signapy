@@ -336,11 +336,11 @@ focused on implementation decisions.
     categorical, not continuous, and belongs to `categorical_lift`/
     `cramers_v` instead — this metric never silently coerces `True`/`False`
     to `1`/`0` as if it were an ordinary continuous measurement. This
-    check also catches booleans stored in an `object`-dtype array/Series
-    (e.g. `numpy.array([True, False], dtype=object)`), not just a true
-    `bool`/nullable `boolean` dtype — `pandas.api.types.is_bool_dtype`
-    alone misses that case, and `pandas.to_numeric` would otherwise
-    silently coerce it to `1.0`/`0.0`.
+    check also catches booleans stored anywhere in an `object`-dtype
+    array/Series (e.g. `numpy.array([True, 2, 3], dtype=object)`), not just
+    a true `bool`/nullable `boolean` dtype —
+    `pandas.api.types.is_bool_dtype` alone misses that case, and
+    `pandas.to_numeric` would otherwise silently coerce it to `1.0`/`0.0`.
   - Datetime-, timedelta-, and complex-valued features are explicitly
     rejected before reaching `pandas.to_numeric`, for the same reason as
     the boolean check: without this, a datetime64 feature was silently
@@ -349,11 +349,14 @@ focused on implementation decisions.
     imaginary component silently discarded (and emitted a `ComplexWarning`
     in the process — an error under this project's `filterwarnings=error`
     pytest config). None of these are "numeric" in the sense this metric
-    means: real-valued continuous measurements. Numeric-*string* input
-    (e.g. `"1.5"`) is still coerced via `pandas.to_numeric` and was not
-    changed — it wasn't part of this fix's scope, since a string
-    representation of a number is arguably still a measurement, unlike a
-    date, a duration, or a complex number.
+    means: real-valued continuous measurements. The same element-level
+    check rejects those values when they are mixed into an `object`-dtype
+    array.
+  - Numeric strings are rejected rather than coerced. Continuous features
+    must contain genuine real numeric values before they reach the metric;
+    accepting strings would make formatting an implicit data-conversion
+    policy and would allow declared continuous discovery features to bypass
+    that contract.
   - Non-finite feature values (`inf`, `-inf`) are rejected outright, not
     treated as missing and dropped — a caller who wants to exclude them
     needs to do that explicitly, since silently dropping them would be a
