@@ -155,11 +155,9 @@ def analyze_continuous_feature(
 
     Raises:
         ValueError: Anything :func:`~signapy.metrics.association.point_biserial`
-            raises for the feature-valid data (non-numeric or boolean
-            values, non-finite values, a target that is no longer binary
-            once this feature's missing values are dropped, a constant
-            feature, or too few remaining observations), with the feature
-            name added for context.
+            raises for the feature-valid data, with the feature name added
+            for context. See that function's docstring for the authoritative
+            validation contract.
     """
     feature_values = pd.Series(feature).to_numpy()
     target_values = pd.Series(target).to_numpy()
