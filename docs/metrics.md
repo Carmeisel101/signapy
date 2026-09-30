@@ -7,28 +7,41 @@ in each function's docstring, and it doesn't cover package structure or design
 rationale — see [`docs/architecture.md`](architecture.md) for that. See the
 [README](../README.md) for installation and the project's overall scope.
 
-> **Status:** the functions described here — `cramers_v`, `chi_square`, and
-> `categorical_lift` — are implemented in `signapy.metrics` today. They are
-> low-level, pure functions: you call them directly on a contingency table or
-> on `feature`/`target` arrays. They are not yet wired into a higher-level
-> `signapy.discover()` workflow.
+> **Status:** the functions described here — `cramers_v`, `chi_square`,
+> `point_biserial`, and `categorical_lift` — are implemented in
+> `signapy.metrics`, and all except `point_biserial` are also wired into
+> `signapy.discover()` for categorical features; `point_biserial` is wired
+> in for continuous features via `discover(..., feature_types={...})`. You
+> can also call any of them directly on a contingency table or on
+> `feature`/`target` arrays, as this page mostly does, without going through
+> `discover()`.
 
 ## 1. Overview
 
-SignaPy's metrics split into two levels that answer different questions:
+SignaPy's metrics split into two levels that answer different questions, and
+the metric that applies depends on whether the feature is categorical or
+continuous:
 
-| Level | Metric | Question |
-| --- | --- | --- |
-| Feature-level | `cramers_v` | How strong is the overall association? |
-| Feature-level | `chi_square` | Is the observed association unlikely under independence? |
-| Value-level | `categorical_lift` | Which individual categories are above or below baseline? |
+| Level | Feature type | Metric | Question |
+| --- | --- | --- | --- |
+| Feature-level | Categorical | `cramers_v` | How strong is the overall association? |
+| Feature-level | Categorical | `chi_square` | Is the observed association unlikely under independence? |
+| Feature-level | Continuous | `point_biserial` | Do larger feature values go with the positive or negative class, and how strongly? |
+| Value-level | Categorical | `categorical_lift` | Which individual categories are above or below baseline? |
+| Value-level | Continuous | *(not yet implemented)* | Which *ranges* of values are above or below baseline? |
 
-Feature-level metrics summarize a categorical feature *as a whole* against a
-target. Value-level metrics break that summary down by category. Neither
-level replaces the other: a feature can show a strong overall association
-that turns out to be driven by one category, or a weak overall association
-that still hides one category worth investigating. Read feature-level and
-value-level evidence together, not as substitutes.
+Feature-level metrics summarize a feature *as a whole* against a target.
+Value-level metrics break that summary down by category (or, eventually,
+by range, for continuous features — see [§5a](#5a-no-continuous-lift-yet)).
+Neither level replaces the other: a feature can show a strong overall
+association that turns out to be driven by one category, or a weak overall
+association that still hides one category worth investigating. Read
+feature-level and value-level evidence together, not as substitutes.
+
+`signapy.discover()` characterizes these univariate statistical
+relationships. It does not train a classifier, select features
+automatically, or tell you how features perform *together* — see
+[`docs/architecture.md`](architecture.md) for that distinction.
 
 ## 2. Cramér's V
 
@@ -66,7 +79,7 @@ which is what makes it useful for comparing features against each other.
   deserve very different confidence. Pair it with `chi_square` (or, later,
   a sample-support check) rather than reading it in isolation.
 - It doesn't tell you *which* categories drive the relationship — for that,
-  see [`categorical_lift`](#4-categorical-lift).
+  see [`categorical_lift`](#5-categorical-lift).
 
 `cramers_v` defaults to the Bergsma (2013) bias-corrected estimator
 (`bias_correction=True`), which reduces the small-sample upward bias of the
@@ -97,7 +110,8 @@ fields:
 not mean the effect is large, useful, or worth acting on. A p-value can be
 very small while the underlying association (as measured by Cramér's V) is
 practically negligible, especially with a large sample. See the
-[worked example](#6-worked-example) below for exactly this case.
+[worked example](#7-worked-example-categorical-feature) below for exactly
+this case.
 
 **Appropriate use and assumptions:** the chi-square test of independence
 assumes the observations are independent of each other (e.g. not repeated
@@ -120,7 +134,66 @@ categories, collecting more data, or using an exact test instead.
 correction (`correction=False`), matching the chi-square statistic used
 internally by `cramers_v`. See the function docstring for details.
 
-## 4. Categorical lift
+## 4. Point-biserial correlation
+
+**Primary question: do continuous values tend to be higher or lower for the
+configured positive class?**
+
+`point_biserial(feature, target, *, positive_class)` is the continuous
+counterpart to `cramers_v`/`chi_square`: it applies when the *feature* is
+continuous and the target is binary (`cramers_v`/`chi_square` apply when
+*both* are categorical). It returns a `PointBiserialResult`:
+
+- **`coefficient`** — the point-biserial correlation, in `[-1, 1]`. This is
+  literally the Pearson correlation between the feature and the target
+  encoded as 1 for `positive_class` and 0 otherwise:
+
+  | Coefficient | Meaning |
+  | --- | --- |
+  | `> 0` | Larger feature values are associated with the positive class. |
+  | `< 0` | Larger feature values are associated with the negative class. |
+  | `≈ 0` | Little *linear* association is present. |
+
+  **The sign depends on which class you configured as `positive_class`.**
+  Reversing it reverses the sign of `coefficient` (and of
+  `mean_difference`, below) without changing its magnitude — this is a
+  choice you make when calling the function, not a fact intrinsic to the
+  data.
+- **`p_value`** — same interpretation as `chi_square`'s: evidence against
+  the null hypothesis that the true correlation is zero, nothing more. A
+  small `p_value` here does not mean `coefficient` is large or that the
+  relationship is useful.
+- **`positive_n` / `negative_n`** — how many rows fall in each target
+  class.
+- **`positive_mean` / `negative_mean`** — the feature's mean within each
+  group, in the feature's *original units*.
+- **`mean_difference`** — `positive_mean - negative_mean`. Unlike the
+  normalized `coefficient`, this carries scale: "the positive class
+  averages 7.8 units higher" is often more directly actionable than "the
+  correlation is 0.48."
+
+**When it's appropriate:** a continuous feature and a binary target, when
+you want to know both the direction/strength of a linear relationship
+(`coefficient`) and its size in real units (`mean_difference`).
+
+**Limitations:**
+
+- It measures **linear** association only. A weak `coefficient` does not
+  rule out a real, strong *nonlinear* relationship (e.g. a feature that's
+  elevated for the positive class only in a middle range) — this metric
+  would report something close to zero for exactly that pattern.
+- Like `chi_square`'s p-value, `p_value` is sensitive to sample size: with
+  enough rows, a negligible `coefficient` can still be "significant."
+- `mean_difference` and `coefficient` describe association, not causation.
+- There's currently no continuous equivalent of `categorical_lift` — see
+  [§5a](#5a-no-continuous-lift-yet).
+
+`signapy`'s `point_biserial()` uses `scipy.stats.pointbiserialr` directly
+(a single call computes both the coefficient and its p-value). See the
+function docstring for exact validation rules (missing values, non-finite
+values, boolean features, minimum sample size, and so on).
+
+## 5. Categorical lift
 
 **Primary question: which individual categories have higher or lower
 positive rates than the baseline?**
@@ -148,7 +221,8 @@ whole, and a feature can have a near-zero Cramér's V while still containing
 one category with a notably high or low lift (or vice versa — a feature-wide
 association driven by several categories, none individually extreme). Use
 lift to find *where* signal lives once feature-level evidence suggests
-there's signal to look for, per the [worked example](#6-worked-example).
+there's signal to look for, per the
+[categorical worked example](#7-worked-example-categorical-feature).
 
 **Watch support, not just lift.** A `lift` of `3.0` computed from 4 rows is
 much weaker evidence than a `lift` of `1.2` computed from 40,000 rows. High
@@ -161,9 +235,21 @@ p-value, no confidence interval) and does not imply causation — a category
 with high lift is *associated* with the positive class in this sample, not
 necessarily a cause of it.
 
-## 5. How to use the metrics together
+### 5a. No continuous lift yet
 
-A compact workflow:
+There is currently no continuous equivalent of `categorical_lift`. For a
+continuous feature, `discover()` always returns `values=None` — the
+feature-level `point_biserial` evidence (§4) is all you get in this
+release. Localizing signal within a continuous range (e.g. "risk climbs
+sharply above 40 units") requires binning the feature, and SignaPy
+deliberately doesn't do that automatically: bin boundaries are a modeling
+choice (equal-width? quantile? domain-specific cutoffs?) that this project
+isn't making on your behalf. It's planned future work — see
+[`docs/architecture.md`](architecture.md) — not an oversight.
+
+## 6. How to use the metrics together
+
+For a **categorical** feature:
 
 1. **`chi_square`** — is there evidence against independence at all?
 2. **`cramers_v`** — if so, how strong is that association in practical
@@ -171,19 +257,63 @@ A compact workflow:
 3. **`categorical_lift`** — which specific categories are pulling the
    positive rate up or down?
 
+For a **continuous** feature, the analogous workflow collapses to one step,
+since `point_biserial` combines a directional effect size and a p-value
+(and there's no lift-equivalent yet, per [§5a](#5a-no-continuous-lift-yet)):
+
+1. **`point_biserial`** — is there a linear association, how strong is it,
+   which direction does it point, and what's the size of the gap between
+   groups in real units (`mean_difference`)?
+
 Common combinations and how to read them:
 
 | Pattern | Reading |
 | --- | --- |
-| Low `p_value` + low `cramers_v` | Statistically detectable, practically weak. With enough data, real but tiny effects become significant; don't treat this as an important feature on its own. |
+| Low `p_value` + low `cramers_v`/`coefficient` | Statistically detectable, practically weak. With enough data, real but tiny effects become significant; don't treat this as an important feature on its own. |
 | Meaningful `cramers_v` + informative lifts | Stronger evidence overall, with `categorical_lift` telling you which categories to look at or act on. |
+| Meaningful `\|coefficient\|` + a large `mean_difference` | Stronger evidence overall for a continuous feature: not just "detectable," but a sizeable, interpretable gap between the two groups. |
 | Large lift with small `support` | Hypothesis-generating, not strong evidence. Worth a closer look (more data, a stability check across folds/time — [planned](architecture.md#12-future-stability-analysis)), not an immediate conclusion. |
+| Low `\|coefficient\|` alone | Weak *linear* evidence only — doesn't rule out a nonlinear relationship a correlation coefficient can't see (see §4's limitations). |
 
 None of these numbers, alone or combined, tell you whether to keep a feature
 in a model — see the [statistical philosophy](architecture.md#8-statistical-philosophy)
 in the architecture doc. SignaPy surfaces evidence; you make the call.
 
-## 6. Worked example
+### General limitations, across every metric on this page
+
+- **Association is not causation**, for any metric here.
+- **A p-value's sensitivity to sample size** (mentioned per-metric above)
+  applies everywhere a p-value appears.
+- **Missing-value exclusion changes the analyzed population.** Every metric
+  and `discover()` itself drop rows with a missing target, and — separately,
+  per feature — rows missing that particular feature's value. If missingness
+  isn't random (e.g. a sensor that fails more often under specific
+  conditions), the rows that remain are a biased sample of the whole, and
+  the evidence describes that biased subset, not the full population.
+- **Repeated or clustered observations inflate apparent significance.** All
+  of these tests assume independent observations. If your rows include
+  repeated measurements of the same entity, or naturally cluster by group,
+  subject, time, or event, ordinary p-values will tend to be more
+  "significant" than they should be — SignaPy does not detect or correct
+  for this.
+- **No out-of-sample validation.** Every number on this page describes the
+  data you passed in. None of it estimates how these relationships would
+  hold up on new data — that's a different, and currently unimplemented,
+  question (see ["stability analysis"](architecture.md#12-future-stability-analysis)).
+- **Univariate evidence isn't combined performance.** Each `FeatureResult`
+  describes one feature against the target, in isolation. It says nothing
+  about how features interact, or how well a model using several of them
+  together would perform — see the
+  [interaction discovery](architecture.md#11-future-interaction-discovery) and
+  [statistical philosophy](architecture.md#8-statistical-philosophy) sections
+  of the architecture doc.
+- **Testing many features raises a multiple-comparisons concern.** Running
+  `discover()` across many columns and looking for the smallest p-values
+  invites the same false-positive inflation as any multiple-testing
+  scenario. SignaPy does not currently apply a correction (e.g.
+  Bonferroni, Benjamini-Hochberg) — that judgment, for now, is yours.
+
+## 7. Worked example: categorical feature
 
 A feature `acquisition_channel` (`referral` / `organic` / `paid`) against a
 binary target `converted` (`yes` / `no`), 20,000 rows per channel, with
@@ -254,3 +384,65 @@ ones, not a channel that dominates conversion. Whether an 8% relative
 difference in conversion rate is worth acting on is a business question
 Cramér's V and chi-square can't answer; that judgment belongs to you, with
 this evidence as input.
+
+## 8. Worked example: mixed categorical and continuous features
+
+A categorical feature `category_context` (`low` / `medium` / `high`) and a
+continuous feature `continuous_measurement`, both against a binary target
+`outcome`, 30 rows, with one missing `continuous_measurement` value. This is
+the same dataset as
+[`examples/mixed_categorical_continuous_discovery.py`](../examples/mixed_categorical_continuous_discovery.py),
+which builds and prints it in full — see the code there for the raw values.
+
+```python
+import signapy
+from signapy.profiling import FeatureType
+
+report = signapy.discover(
+    df,
+    target="outcome",
+    positive_class=True,
+    feature_types={
+        "category_context": FeatureType.CATEGORICAL,
+        "continuous_measurement": FeatureType.CONTINUOUS,
+    },
+)
+
+report.feature("category_context")
+report.feature("continuous_measurement")
+```
+
+```text
+FeatureResult(feature='category_context', feature_type=FeatureType.CATEGORICAL,
+    target_type=TargetType.BINARY, effect_size_method='cramers_v',
+    effect_size=0.42..., n=30, missing_rate=0.0, test_method='chi_square',
+    p_value=0.0273..., values=(...3 ValueResults...),
+    details={'statistic': 7.2, 'dof': 2})
+
+FeatureResult(feature='continuous_measurement', feature_type=FeatureType.CONTINUOUS,
+    target_type=TargetType.BINARY, effect_size_method='point_biserial',
+    effect_size=0.4756, n=29, missing_rate=0.0333..., test_method='point_biserial',
+    p_value=0.009125..., values=None,
+    details={'positive_n': 15, 'negative_n': 14, 'positive_mean': 24.08,
+             'negative_mean': 16.3, 'mean_difference': 7.78})
+```
+
+**Interpretation.** `category_context` shows a moderate, statistically
+detectable association (`cramers_v ≈ 0.42`, `p_value ≈ 0.027`) — its three
+`values` (not shown in full above) tell you `low` sits well below baseline
+and `high` well above it, per §5's interpretation. `continuous_measurement`
+shows a comparable-strength, positive linear association
+(`coefficient ≈ 0.48`, `p_value ≈ 0.009`): rows in the positive class
+average about 7.8 units higher (`mean_difference`) than rows in the
+negative class — one missing value (`missing_rate ≈ 0.033`) was excluded
+from just this feature's analysis, per SignaPy's per-feature missing-data
+policy (see [`docs/architecture.md`](architecture.md)).
+
+Note what's missing from the continuous result: no per-range breakdown.
+`category_context.values` has three entries you can inspect directly;
+`continuous_measurement.values` is `None`. The point-biserial coefficient
+and group means tell you the feature *as a whole* leans toward the positive
+class at higher values, but not, for example, whether the relationship is
+roughly linear across the whole range or concentrated above some threshold
+— that's exactly the continuous-localization gap described in
+[§5a](#5a-no-continuous-lift-yet).

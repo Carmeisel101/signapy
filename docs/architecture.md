@@ -190,14 +190,17 @@ src/signapy/
 │   ├── (inference)    # planned: propose semantic types from data
 │   └── (summary)      # planned: missingness, cardinality, prevalence
 ├── metrics/           # pure statistics: arrays/tables in, numbers out
-│   ├── association.py  # implemented: cramers_v (categorical, Phi/Spearman/
-│   │                    #   point-biserial for other feature types planned)
+│   ├── association.py  # implemented: cramers_v, point_biserial
+│   │                    #   (Phi/Spearman for other feature types planned)
 │   ├── significance.py # implemented: chi_square, ChiSquareResult
 │   └── lift.py          # implemented: categorical_lift, CategoricalValueMetrics
+│                        #   (no continuous equivalent yet, see §10a)
 ├── discovery/         # user-facing workflows: type → method → results
-│   ├── __init__.py     # implemented: discover(df, target, *, positive_class)
-│   ├── feature.py       # implemented: analyze_categorical_feature
-│   └── value.py          # implemented: build_value_results
+│   ├── __init__.py     # implemented: discover(df, target, *, positive_class,
+│   │                    #   feature_types=None), method dispatch table
+│   ├── feature.py       # implemented: analyze_categorical_feature,
+│   │                    #   analyze_continuous_feature
+│   └── value.py          # implemented: build_value_results (categorical only)
 └── results/
     └── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
 ```
@@ -213,9 +216,13 @@ Rules:
   values.
 - **`discovery` owns decisions.** It maps `(feature_type, target_type)` to
   methods, handles missing values, and builds result models. The top-level
-  `signapy.discover(df, target=..., *, positive_class=...)` is the main
-  entry point, exported from `signapy.discovery` and re-exported as
-  `signapy.discover`.
+  `signapy.discover(df, target=..., *, positive_class=..., feature_types=None)`
+  is the main entry point, exported from `signapy.discovery` and re-exported
+  as `signapy.discover`. The `(feature_type, target_type) → analyzer`
+  mapping is a literal dispatch dict in `discovery/__init__.py`
+  (`_DISPATCH`), not an `if`/`elif` chain — adding a new supported
+  combination means adding an entry there (and to
+  `_SUPPORTED_FEATURE_TYPES`), not extending a growing conditional.
 - **`profiling` owns types.** Type inference and user overrides live here.
 - **No `utils` package until there is real shared code.** Avoid catch-all
   modules.
@@ -309,7 +316,8 @@ focused on implementation decisions.
   by zero.
 - **Point-biserial correlation (`point_biserial`):** the continuous-feature
   counterpart to `cramers_v`, added for the categorical+continuous mixed
-  discovery slice (see [§10a](#10a-second-vertical-slice-mixed-categorical-and-continuous-discovery)).
+  discovery slice (see
+  [§10a](#10a-second-vertical-slice-mixed-categorical-and-continuous-discovery-implemented)).
   Settled decisions:
   - Uses `scipy.stats.pointbiserialr` directly (one call computes both the
     coefficient and its p-value — never call it twice to get them
@@ -399,6 +407,130 @@ live here; the actual statistics stay in `metrics`.
 
 Tests must be deterministic and use small synthetic datasets whose expected
 statistics are known (hand-computed, or checked against `scipy.stats`).
+
+## 10a. Second vertical slice: mixed categorical and continuous discovery (implemented)
+
+```text
+categorical feature → binary target        continuous feature → binary target
+        ↓                                          ↓
+Cramér's V + chi-square                     point-biserial correlation
+        ↓                                          ↓
+categorical_lift (support, rate,            group counts, means, and
+baseline rate, lift)                        mean difference — no
+                                             value-level localization yet
+```
+
+Extends `signapy.discover()` to also handle continuous features, selected
+and declared explicitly via a new `feature_types` argument, on branches
+`feature/continuous-binary-metrics` (the pure metric,
+`signapy.metrics.association.point_biserial`) and
+`feature/mixed-feature-discovery` (the wiring below).
+
+### Public API addition
+
+```python
+def discover(
+    df: pd.DataFrame,
+    target: str,
+    *,
+    positive_class: Hashable,
+    feature_types: Mapping[str, FeatureType | str] | None = None,
+) -> DiscoveryReport: ...
+```
+
+- `feature_types=None` (the default) is **exactly** the original behavior:
+  every non-target column, analyzed as categorical, with the same dtype
+  check and error message as before. Implemented as the same code path as
+  the explicit case (defaulting to `{col: FeatureType.CATEGORICAL for col
+  in df.columns if col != target}`), not a separate branch, so the two
+  can't silently drift apart.
+- With `feature_types` given: its keys are the *only* columns analyzed, in
+  `df`'s own column order (not the mapping's insertion order); `target`
+  must not be a key; every key must be a column of `df`; every value must
+  resolve to a supported `FeatureType` (`CATEGORICAL` or `CONTINUOUS` — the
+  only two so far; `ORDINAL`/`BOOLEAN`/an invalid string all raise); an
+  empty mapping raises.
+
+### Settled decisions
+
+- **Why `point_biserial` and not something else:** point-biserial
+  correlation is exactly Pearson correlation between a continuous variable
+  and a binary one — well-established, directly comparable in spirit to
+  `cramers_v` (an effect size) plus `chi_square` (its significance test) in
+  one call, and directly available via `scipy.stats.pointbiserialr`. See
+  `docs/metrics.md` §4 for the user-facing interpretation.
+- **Numeric columns require an explicit `feature_types` declaration.** An
+  integer column might be a measured quantity, an ordinal level, or a
+  compact category identifier — SignaPy does not infer this from the
+  values (consistent with [§6, Planned types](#6-planned-types)). There is
+  deliberately no "auto-detect continuous" path; the default
+  (`feature_types=None`) only ever treats columns as categorical.
+- **Positive-class directionality.** `positive_class` controls the *sign*
+  of `point_biserial`'s `coefficient` and `mean_difference`: the target is
+  encoded as `target == positive_class` (1/0), so `coefficient > 0` means
+  larger feature values go with the positive class. Reversing
+  `positive_class` reverses both signs exactly, not just approximately —
+  verified by a property test (`tests/test_point_biserial.py`).
+  `cramers_v`/`chi_square` have no such directionality (categorical
+  variables have no ordering), which is one of the two questions
+  `docs/metrics.md` explicitly distinguishes between feature types.
+- **`mean_difference` is `positive_mean - negative_mean`,** in the
+  feature's original units — not normalized like `coefficient`. This is
+  deliberate: it gives interpretable, actionable scale
+  (`docs/metrics.md`'s guiding principle that effect size and p-value
+  aren't the whole story) that a `[-1, 1]` correlation coefficient alone
+  doesn't communicate.
+- **Missing and infinite values.** Same per-feature missing-data policy as
+  categorical features (§10's settled decisions, item by item): a
+  continuous feature's own missing values are dropped from *that feature's*
+  analysis only, contributing to its own `missing_rate`; a non-missing but
+  infinite value (`inf`/`-inf`) is **not** treated as missing and is not
+  silently dropped — `point_biserial` raises, and
+  `analyze_continuous_feature` re-raises with the feature name added, the
+  same wrapping pattern `analyze_categorical_feature` already uses around
+  `cramers_v`/`chi_square`.
+- **Why continuous localization (binning) was deferred.** Categorical
+  `categorical_lift` works because "which value" is already a discrete,
+  finite question. For a continuous feature, "which range of values" isn't
+  answerable without first choosing bin boundaries — equal-width, quantile,
+  or domain-specific — and that choice is a modeling decision this project
+  is not making on a user's behalf in this iteration (consistent with
+  SignaPy's non-goals: it surfaces evidence, it doesn't make modeling
+  choices for you). `FeatureResult.values` is therefore always `None` for
+  a continuous feature, never an empty tuple (preserving the existing
+  `values=None` meaning "not performed," from the results model's original
+  design in §7) and never something invented to fill the gap. A future
+  feature can add `values` for continuous features once binning is
+  designed, without changing `FeatureResult`'s shape.
+- **`FeatureResult.details` typing widened** from `Mapping[str, float]` to
+  `Mapping[str, float | int]`: continuous `details` legitimately mixes
+  integer group counts (`positive_n`, `negative_n`) with floating-point
+  measurements (`positive_mean`, `negative_mean`, `mean_difference`), and
+  the old annotation would have required dishonestly casting the counts to
+  `float`.
+- **Dispatch, not a growing conditional.** `discovery/__init__.py` holds a
+  `_DISPATCH: dict[tuple[FeatureType, TargetType], analyzer]` mapping.
+  Both entries today target `TargetType.BINARY`; a future continuous or
+  multiclass target adds new dispatch entries rather than restructuring
+  existing ones. An unmatched `(feature_type, target_type)` pair raises
+  naming the feature, its declared type, the target type, and the
+  currently supported combinations — currently unreachable in practice
+  (every value `_resolve_feature_type` accepts has a dispatch entry for
+  `TargetType.BINARY`, the only target type this layer supports), kept as
+  an explicit named failure rather than a `KeyError` so it stays correct if
+  either set changes independently later.
+
+### Out of scope (this slice)
+
+Confirmed non-goals, unchanged from the spec: classifier training,
+multivariate/interaction analysis, automatic feature selection, automatic
+continuous binning, per-bin lift, confidence intervals, multiple-testing
+correction, cluster-aware tests, ordinal discovery, multiclass or
+continuous targets, and stability analysis. See §12 and the "Statistical
+limitations" section of `docs/metrics.md` for the general caveats
+(causation, sample-size sensitivity, clustering, no out-of-sample
+validation, missing-data population shift, multiple comparisons) that apply
+across every metric in this project, not just the new one.
 
 ## 11. Future: interaction discovery
 
