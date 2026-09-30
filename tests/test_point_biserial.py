@@ -198,6 +198,11 @@ class TestPointBiserialInvalidInputs:
         with pytest.raises(ValueError, match="must not be boolean"):
             point_biserial(feature, ["a", "b", "a"], positive_class="a")
 
+    def test_rejects_boolean_among_object_dtype_numbers(self):
+        feature = np.array([True, 2, 3], dtype=object)
+        with pytest.raises(ValueError, match="must not be boolean"):
+            point_biserial(feature, ["a", "b", "a"], positive_class="a")
+
     def test_rejects_datetime_feature(self):
         # Regression test: a datetime64 feature used to be silently
         # coerced to nanosecond-epoch timestamp floats by pandas.to_numeric.
@@ -220,6 +225,30 @@ class TestPointBiserialInvalidInputs:
         feature = np.array([1 + 2j, 2 + 1j, 3 + 0j, 10 + 5j])
         with pytest.raises(ValueError, match="real-valued"):
             point_biserial(feature, ["a", "b", "a", "b"], positive_class="a")
+
+    @pytest.mark.parametrize(
+        ("prohibited_value", "message"),
+        [
+            (np.datetime64("2020-01-01"), "datetime"),
+            (np.timedelta64(1, "D"), "timedelta"),
+            (1 + 2j, "real-valued"),
+        ],
+    )
+    def test_rejects_prohibited_value_among_object_dtype_numbers(
+        self, prohibited_value, message
+    ):
+        feature = np.array([1, prohibited_value, 3], dtype=object)
+        with pytest.raises(ValueError, match=message):
+            point_biserial(feature, ["a", "b", "a"], positive_class="a")
+
+    def test_rejects_numeric_strings(self):
+        with pytest.raises(ValueError, match="only real numeric values"):
+            point_biserial(["1", "2", "10"], ["a", "b", "b"], positive_class="b")
+
+    def test_accepts_real_numbers_stored_as_object_dtype(self):
+        feature = np.array([1, 2.5, 10], dtype=object)
+        result = point_biserial(feature, ["a", "b", "b"], positive_class="b")
+        assert result.positive_mean == pytest.approx(6.25)
 
     def test_rejects_infinite_feature_values(self):
         with pytest.raises(ValueError, match="infinite"):
