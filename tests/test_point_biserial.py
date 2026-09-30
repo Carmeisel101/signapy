@@ -189,6 +189,38 @@ class TestPointBiserialInvalidInputs:
         with pytest.raises(ValueError, match="must not be boolean"):
             point_biserial(feature, ["a", "b", "a"], positive_class="a")
 
+    def test_rejects_boolean_feature_stored_as_object_dtype(self):
+        # Regression test: True/False stored in an object-dtype array used
+        # to bypass the boolean check entirely and coerce through
+        # pandas.to_numeric to 1.0/0.0 as if it were an ordinary continuous
+        # measurement.
+        feature = np.array([True, False, True], dtype=object)
+        with pytest.raises(ValueError, match="must not be boolean"):
+            point_biserial(feature, ["a", "b", "a"], positive_class="a")
+
+    def test_rejects_datetime_feature(self):
+        # Regression test: a datetime64 feature used to be silently
+        # coerced to nanosecond-epoch timestamp floats by pandas.to_numeric.
+        feature = pd.to_datetime(
+            ["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"]
+        )
+        with pytest.raises(ValueError, match="datetime"):
+            point_biserial(feature, ["a", "b", "a", "b"], positive_class="a")
+
+    def test_rejects_timedelta_feature(self):
+        feature = pd.to_timedelta([1, 2, 3, 4], unit="D")
+        with pytest.raises(ValueError, match="timedelta"):
+            point_biserial(feature, ["a", "b", "a", "b"], positive_class="a")
+
+    def test_rejects_complex_feature(self):
+        # Regression test: complex values used to be silently truncated to
+        # their real component by pandas.to_numeric/.to_numpy(dtype=float),
+        # which also emits a ComplexWarning (an error under this project's
+        # pytest config) rather than a clear ValueError.
+        feature = np.array([1 + 2j, 2 + 1j, 3 + 0j, 10 + 5j])
+        with pytest.raises(ValueError, match="real-valued"):
+            point_biserial(feature, ["a", "b", "a", "b"], positive_class="a")
+
     def test_rejects_infinite_feature_values(self):
         with pytest.raises(ValueError, match="infinite"):
             point_biserial([1, 2, float("inf")], ["a", "b", "a"], positive_class="a")
