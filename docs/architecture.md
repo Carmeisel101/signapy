@@ -307,6 +307,42 @@ focused on implementation decisions.
   defensive fallback (technically unreachable given the checks above) rather
   than letting a future change to those checks silently produce a division
   by zero.
+- **Point-biserial correlation (`point_biserial`):** the continuous-feature
+  counterpart to `cramers_v`, added for the categorical+continuous mixed
+  discovery slice (see [§10a](#10a-second-vertical-slice-mixed-categorical-and-continuous-discovery)).
+  Settled decisions:
+  - Uses `scipy.stats.pointbiserialr` directly (one call computes both the
+    coefficient and its p-value — never call it twice to get them
+    separately).
+  - `positive_class` controls the sign: the target is encoded as `target ==
+    positive_class` (1/0), so `coefficient > 0` means larger feature values
+    go with the positive class. Reversing `positive_class` reverses the
+    sign of both `coefficient` and `mean_difference`, exactly (verified by
+    a property test), not just approximately.
+  - `mean_difference` is defined as `positive_mean - negative_mean`, in the
+    feature's original units. `PointBiserialResult.__post_init__` enforces
+    this as an invariant (within floating-point tolerance) rather than
+    trusting callers to keep the two consistent.
+  - Boolean feature values are explicitly rejected with their own error
+    (distinct from the generic "must be numeric" one): a boolean column is
+    categorical, not continuous, and belongs to `categorical_lift`/
+    `cramers_v` instead — this metric never silently coerces `True`/`False`
+    to `1`/`0` as if it were an ordinary continuous measurement.
+  - Non-finite feature values (`inf`, `-inf`) are rejected outright, not
+    treated as missing and dropped — a caller who wants to exclude them
+    needs to do that explicitly, since silently dropping them would be a
+    policy decision the metrics layer doesn't make.
+  - A constant feature (zero variance) raises `ValueError` rather than
+    returning `NaN` or `0.0`: Pearson correlation is undefined, not zero,
+    when one variable has no variance.
+  - A minimum of 3 total observations is required
+    (`_MIN_POINT_BISERIAL_OBSERVATIONS`), so degrees of freedom
+    (`n - 2 >= 1`) stay positive and the p-value stays well-defined, rather
+    than relying on `scipy` to warn or return `NaN` for smaller samples.
+  - Pandas nullable numeric dtypes (`Int64`, `Float64`, ...) are accepted
+    once free of missing values: `numpy.asarray` on a fully-populated
+    nullable array already resolves to a plain numeric dtype, so no special
+    conversion path was needed.
 
 ### Settled decisions (discovery layer)
 
