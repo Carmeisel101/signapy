@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Hashable
 from dataclasses import dataclass
+from decimal import Decimal
+from numbers import Real
 
 import numpy as np
 import numpy.typing as npt
@@ -129,25 +131,57 @@ def cramers_v(
 _MIN_POINT_BISERIAL_OBSERVATIONS = 3
 
 
-def _is_boolean_array(array: np.ndarray, original: npt.ArrayLike) -> bool:
-    """Whether ``array`` (converted from ``original``) is boolean-valued.
+def _validate_real_numeric_feature(array: np.ndarray) -> None:
+    """Require every feature value to be a real, non-boolean number."""
+    object_values = array if array.dtype == object else ()
 
-    Catches plain ``bool``/``numpy.bool_`` dtype arrays, pandas nullable
-    ``boolean`` dtype (detected from ``original``, since converting through
-    :func:`numpy.asarray` loses that dtype), and boolean values stored in
-    an ``object``-dtype array (e.g. ``numpy.array([True, False],
-    dtype=object)``) — which ``pandas.api.types.is_bool_dtype`` alone does
-    not catch, and which would otherwise coerce through
-    ``pandas.to_numeric`` as ``1.0``/``0.0`` without ever being flagged as
-    boolean.
-    """
-    if pd.api.types.is_bool_dtype(array.dtype):
-        return True
-    if isinstance(getattr(original, "dtype", None), pd.BooleanDtype):
-        return True
-    if array.dtype == object and len(array) > 0:
-        return all(isinstance(value, bool | np.bool_) for value in array)
-    return False
+    if pd.api.types.is_bool_dtype(array.dtype) or any(
+        isinstance(value, bool | np.bool_) for value in object_values
+    ):
+        raise ValueError(
+            "feature must not be boolean; a boolean feature is categorical, "
+            "not continuous, and unsupported by point_biserial in this "
+            "release (see signapy.metrics.lift.categorical_lift instead)"
+        )
+
+    if (
+        pd.api.types.is_datetime64_any_dtype(array.dtype)
+        or pd.api.types.is_timedelta64_dtype(array.dtype)
+        or any(
+            isinstance(
+                value, np.datetime64 | np.timedelta64 | pd.Timestamp | pd.Timedelta
+            )
+            for value in object_values
+        )
+    ):
+        raise ValueError(
+            f"feature must not be datetime- or timedelta-valued (got dtype "
+            f"{array.dtype}); point_biserial treats values as continuous "
+            "measurements, not calendar dates or durations — convert to a "
+            "numeric measurement (e.g. days since a reference date) before "
+            "calling if that's what you intend"
+        )
+
+    if np.issubdtype(array.dtype, np.complexfloating) or any(
+        isinstance(value, complex | np.complexfloating) for value in object_values
+    ):
+        raise ValueError(
+            f"feature must be real-valued (got dtype {array.dtype}); "
+            "point_biserial does not support complex numbers, which would "
+            "otherwise be silently truncated to their real component"
+        )
+
+    if array.dtype == object:
+        is_real_numeric = all(
+            isinstance(value, Real | Decimal) for value in object_values
+        )
+    else:
+        is_real_numeric = pd.api.types.is_numeric_dtype(array.dtype)
+    if not is_real_numeric:
+        raise ValueError(
+            f"feature must be numeric; only real numeric values are accepted, "
+            f"got dtype {array.dtype}"
+        )
 
 
 @dataclass(frozen=True)
@@ -219,7 +253,8 @@ def point_biserial(
             ``object``-dtype array/Series, not just true ``bool``/nullable
             ``boolean`` dtype), datetime and timedelta values (calendar
             dates and durations, not measurements), and complex values
-            (not real-valued).
+            (not real-valued), and numeric strings (representations that
+            would require coercion rather than numeric measurements).
         target: A 1D array-like of target labels, one per row, positionally
             aligned with ``feature`` (not by pandas index, if both are
             ``Series`` — see :func:`signapy.metrics.lift.categorical_lift`
@@ -262,29 +297,6 @@ def point_biserial(
             f"target must be one-dimensional, got shape {target_array.shape}"
         )
 
-    if _is_boolean_array(feature_array, feature):
-        raise ValueError(
-            "feature must not be boolean; a boolean feature is categorical, "
-            "not continuous, and unsupported by point_biserial in this "
-            "release (see signapy.metrics.lift.categorical_lift instead)"
-        )
-    if pd.api.types.is_datetime64_any_dtype(
-        feature_array.dtype
-    ) or pd.api.types.is_timedelta64_dtype(feature_array.dtype):
-        raise ValueError(
-            f"feature must not be datetime- or timedelta-valued (got dtype "
-            f"{feature_array.dtype}); point_biserial treats values as "
-            "continuous measurements, not calendar dates or durations — "
-            "convert to a numeric measurement (e.g. days since a reference "
-            "date) before calling if that's what you intend"
-        )
-    if np.issubdtype(feature_array.dtype, np.complexfloating):
-        raise ValueError(
-            f"feature must be real-valued (got dtype {feature_array.dtype}); "
-            "point_biserial does not support complex numbers, which would "
-            "otherwise be silently truncated to their real component"
-        )
-
     if len(feature_array) != len(target_array):
         raise ValueError(
             f"feature and target must have the same length, got "
@@ -303,6 +315,8 @@ def point_biserial(
             "point_biserial does not accept missing target values; clean "
             "or impute before calling"
         )
+
+    _validate_real_numeric_feature(feature_array)
 
     try:
         feature_values = pd.to_numeric(
