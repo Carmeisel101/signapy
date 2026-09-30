@@ -331,32 +331,12 @@ focused on implementation decisions.
     feature's original units. `PointBiserialResult.__post_init__` enforces
     this as an invariant (within floating-point tolerance) rather than
     trusting callers to keep the two consistent.
-  - Boolean feature values are explicitly rejected with their own error
-    (distinct from the generic "must be numeric" one): a boolean column is
-    categorical, not continuous, and belongs to `categorical_lift`/
-    `cramers_v` instead — this metric never silently coerces `True`/`False`
-    to `1`/`0` as if it were an ordinary continuous measurement. This
-    check also catches booleans stored anywhere in an `object`-dtype
-    array/Series (e.g. `numpy.array([True, 2, 3], dtype=object)`), not just
-    a true `bool`/nullable `boolean` dtype —
-    `pandas.api.types.is_bool_dtype` alone misses that case, and
-    `pandas.to_numeric` would otherwise silently coerce it to `1.0`/`0.0`.
-  - Datetime-, timedelta-, and complex-valued features are explicitly
-    rejected before reaching `pandas.to_numeric`, for the same reason as
-    the boolean check: without this, a datetime64 feature was silently
-    coerced to nanosecond-epoch timestamp floats, a timedelta64 feature to
-    its duration in an arbitrary unit, and a complex feature had its
-    imaginary component silently discarded (and emitted a `ComplexWarning`
-    in the process — an error under this project's `filterwarnings=error`
-    pytest config). None of these are "numeric" in the sense this metric
-    means: real-valued continuous measurements. The same element-level
-    check rejects those values when they are mixed into an `object`-dtype
-    array.
-  - Numeric strings are rejected rather than coerced. Continuous features
-    must contain genuine real numeric values before they reach the metric;
-    accepting strings would make formatting an implicit data-conversion
-    policy and would allow declared continuous discovery features to bypass
-    that contract.
+  - The feature is validated value by value before numeric conversion, so
+    only genuine real numeric measurements are accepted. In particular,
+    boolean, datetime, timedelta, complex, and string representations are
+    rejected even when hidden in an `object`-dtype array. This keeps pandas
+    coercion from silently defining the metric's input semantics. The
+    function docstring owns the exhaustive user-facing validation contract.
   - Non-finite feature values (`inf`, `-inf`) are rejected outright, not
     treated as missing and dropped — a caller who wants to exclude them
     needs to do that explicitly, since silently dropping them would be a
