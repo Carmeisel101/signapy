@@ -8,26 +8,53 @@ into :mod:`signapy.results` models.
 Modules:
 
 - ``feature``: feature-level discovery for one categorical feature
-  (:func:`~signapy.discovery.feature.analyze_categorical_feature`)
+  (:func:`~signapy.discovery.feature.analyze_categorical_feature`) or one
+  continuous feature
+  (:func:`~signapy.discovery.feature.analyze_continuous_feature`)
 - ``value``: value-level discovery, adapting
   :func:`~signapy.metrics.lift.categorical_lift` to
   :class:`~signapy.results.ValueResult`
-  (:func:`~signapy.discovery.value.build_value_results`)
+  (:func:`~signapy.discovery.value.build_value_results`). Categorical
+  features only — continuous localization (binning) is deferred (see
+  ``docs/architecture.md``).
 
 This module's :func:`discover` is the top-level entry point, exported as
-``signapy.discover``.
+``signapy.discover``. It supports categorical and continuous features
+against a binary target; :data:`_DISPATCH` is where support for additional
+``(FeatureType, TargetType)`` combinations will be added.
 """
 
 from __future__ import annotations
 
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable, Mapping
 
 import pandas as pd
 
-from signapy.discovery.feature import analyze_categorical_feature
-from signapy.results import DiscoveryReport
+from signapy.discovery.feature import (
+    analyze_categorical_feature,
+    analyze_continuous_feature,
+)
+from signapy.profiling import FeatureType, TargetType
+from signapy.results import DiscoveryReport, FeatureResult
 
 __all__ = ["discover"]
+
+_FeatureAnalyzer = Callable[..., FeatureResult]
+
+# Method dispatch: which analyzer handles a given (declared feature type,
+# target type) combination. Adding a new supported combination (e.g. a
+# continuous target, or ordinal features) means adding an entry here and to
+# _SUPPORTED_FEATURE_TYPES/_resolve_feature_type, not a longer if/elif chain.
+_DISPATCH: dict[tuple[FeatureType, TargetType], _FeatureAnalyzer] = {
+    (FeatureType.CATEGORICAL, TargetType.BINARY): analyze_categorical_feature,
+    (FeatureType.CONTINUOUS, TargetType.BINARY): analyze_continuous_feature,
+}
+
+# Feature types accepted in the *public* feature_types argument. A stricter
+# (and currently identical) set than _DISPATCH's keys would allow, kept
+# separate so "not a supported FeatureType value here" and "no analyzer for
+# this combination" can be reported as the distinct failures they are.
+_SUPPORTED_FEATURE_TYPES = (FeatureType.CATEGORICAL, FeatureType.CONTINUOUS)
 
 
 def _is_supported_categorical_dtype(series: pd.Series) -> bool:
@@ -45,45 +72,106 @@ def _is_supported_categorical_dtype(series: pd.Series) -> bool:
     )
 
 
+def _resolve_feature_type(name: str, declared: FeatureType | str) -> FeatureType:
+    """Validate and normalize one ``feature_types`` entry.
+
+    Raises:
+        ValueError: If ``declared`` is not a valid :class:`FeatureType`
+            value, or is a valid one that this discovery slice does not yet
+            support (anything other than ``CATEGORICAL``/``CONTINUOUS``).
+    """
+    if isinstance(declared, FeatureType):
+        feature_type = declared
+    else:
+        try:
+            feature_type = FeatureType(declared)
+        except ValueError as error:
+            valid = [member.value for member in FeatureType]
+            raise ValueError(
+                f"feature_types[{name!r}] = {declared!r} is not a valid "
+                f"FeatureType; valid values are {valid}"
+            ) from error
+    if feature_type not in _SUPPORTED_FEATURE_TYPES:
+        supported = [member.value for member in _SUPPORTED_FEATURE_TYPES]
+        raise ValueError(
+            f"feature_types[{name!r}] = {feature_type.value!r} is not yet "
+            f"supported by signapy.discover; supported feature types are "
+            f"{supported}"
+        )
+    return feature_type
+
+
 def discover(
     df: pd.DataFrame,
     target: str,
     *,
     positive_class: Hashable,
+    feature_types: Mapping[str, FeatureType | str] | None = None,
 ) -> DiscoveryReport:
-    """Discover categorical feature/value evidence against a binary target.
+    """Discover feature/value evidence against a binary target.
 
-    For every column in ``df`` other than ``target``, with a supported
-    categorical dtype, this computes feature-level evidence (bias-corrected
-    Cramér's V and a chi-square test) and value-level evidence (per-category
-    support, target rate, baseline rate, and lift), and returns them as a
-    :class:`~signapy.results.DiscoveryReport`.
+    Computes feature-level evidence for each selected feature — and,
+    for categorical features, value-level evidence too — and returns them
+    as a :class:`~signapy.results.DiscoveryReport`.
 
-    This is SignaPy's first discovery slice: binary targets and categorical
-    features only. ``df`` is never mutated.
+    - **Categorical** features get bias-corrected Cramér's V, a chi-square
+      test, and per-category support/target rate/baseline rate/lift
+      (``FeatureResult.values`` populated).
+    - **Continuous** features get a point-biserial correlation and its
+      p-value, plus group counts and means in ``details``
+      (``FeatureResult.values`` is always ``None`` — continuous
+      localization is deferred, see ``docs/architecture.md``).
+
+    This is SignaPy's discovery layer for binary targets only. ``df`` is
+    never mutated.
 
     Args:
         df: The labeled dataset.
         target: Name of the binary target column in ``df``.
         positive_class: The target value treated as the positive class.
+        feature_types: Optional mapping from column name to
+            :class:`~signapy.profiling.FeatureType` (or its string value,
+            e.g. ``"categorical"``), selecting exactly which columns to
+            analyze and how. When given:
+
+            - Its keys are the *only* features analyzed; other columns of
+              ``df`` are ignored.
+            - ``target`` must not be one of the keys.
+            - Every key must be a column of ``df``.
+            - Only ``FeatureType.CATEGORICAL`` and ``FeatureType.CONTINUOUS``
+              are supported in this release.
+
+            When omitted (``None``, the default), every non-target column
+            of ``df`` is analyzed as categorical — this preserves the
+            behavior from before ``feature_types`` existed, including
+            raising if a column's dtype isn't a supported categorical dtype.
+            Numeric columns are never silently treated as continuous:
+            declaring them via ``feature_types`` is required, because an
+            integer column might be a measured quantity, an ordinal level,
+            or a category identifier, and SignaPy does not guess which.
 
     Returns:
         A :class:`~signapy.results.DiscoveryReport` with one
-        :class:`~signapy.results.FeatureResult` per supported feature
-        column, in the same order as ``df.columns`` (excluding ``target``).
+        :class:`~signapy.results.FeatureResult` per selected feature, in
+        the same order as ``df.columns`` (restricted to the selected
+        features when ``feature_types`` is given).
 
     Raises:
         ValueError: If ``target`` is not a column of ``df``; if ``df`` is
             empty; if ``target``'s non-missing values are not exactly two
             distinct classes; if ``positive_class`` is not one of them; if
-            any other column has an unsupported dtype (see
-            :func:`_is_supported_categorical_dtype`); or if a feature has
-            fewer than two observed categories once its own missing values
+            ``feature_types`` is an empty mapping, includes ``target``, or
+            names a column not in ``df``; if a declared feature type is
+            invalid or not yet supported (see :func:`_resolve_feature_type`);
+            if a categorical column's dtype is unsupported (see
+            :func:`_is_supported_categorical_dtype`); or if a feature's own
+            data is invalid for its declared type once its missing values
             are dropped (see
-            :func:`signapy.discovery.feature.analyze_categorical_feature`).
+            :func:`signapy.discovery.feature.analyze_categorical_feature`
+            and :func:`signapy.discovery.feature.analyze_continuous_feature`).
 
     Missing-data policy (see ``docs/architecture.md`` for the full
-    rationale):
+    rationale), the same for every feature type:
 
     1. Rows with a missing ``target`` are excluded from all analysis.
     2. For each feature, rows with a missing value for *that* feature are
@@ -93,16 +181,12 @@ def discover(
        target and a non-missing value for that feature.
     4. ``FeatureResult.missing_rate`` is the fraction of target-valid rows
        where that feature is missing.
-    5. Value-level baseline rate and lift are computed from the same
-       feature-valid rows used for that feature's Cramér's V and
-       chi-square.
-
-    Categorical feature policy: only ``object``, pandas ``string``, and
-    pandas ``category`` dtype columns are treated as categorical features.
-    Numeric columns (including integer-coded categories) and boolean
-    columns are rejected with an explicit error rather than silently
-    reinterpreted — inferring semantic type from values is deliberately
-    out of scope for this slice.
+    5. For categorical features, value-level baseline rate and lift are
+       computed from the same feature-valid rows used for that feature's
+       Cramér's V and chi-square.
+    6. Infinite values are invalid, not missing — a continuous feature
+       containing ``inf``/``-inf`` raises rather than having those rows
+       silently dropped.
     """
     if target not in df.columns:
         raise ValueError(
@@ -129,21 +213,67 @@ def discover(
             f"target classes {labels}; check for a typo or the wrong value"
         )
 
-    feature_columns = [column for column in df.columns if column != target]
+    if feature_types is None:
+        # Backward-compatible default: every non-target column, analyzed as
+        # categorical. Equivalent to declaring every column CATEGORICAL
+        # explicitly, so it goes through the same resolved_types/dispatch
+        # path below rather than a separate code path to keep in sync.
+        resolved_types: dict[str, FeatureType] = {
+            column: FeatureType.CATEGORICAL for column in df.columns if column != target
+        }
+    else:
+        if len(feature_types) == 0:
+            raise ValueError("feature_types must not be empty")
+        if target in feature_types:
+            raise ValueError(
+                f"feature_types must not include the target column {target!r}"
+            )
+        for name in feature_types:
+            if name not in df.columns:
+                raise ValueError(
+                    f"feature_types names {name!r}, which is not a column "
+                    f"of df: {list(df.columns)}"
+                )
+        resolved_types = {
+            name: _resolve_feature_type(name, declared)
+            for name, declared in feature_types.items()
+        }
+
+    feature_columns = [column for column in df.columns if column in resolved_types]
     results = []
     for name in feature_columns:
+        feature_type = resolved_types[name]
         series = target_valid_df[name]
-        if not _is_supported_categorical_dtype(series):
+
+        analyzer = _DISPATCH.get((feature_type, TargetType.BINARY))
+        if analyzer is None:
+            # Currently unreachable: _resolve_feature_type only allows
+            # values in _SUPPORTED_FEATURE_TYPES, which are exactly
+            # _DISPATCH's keys for TargetType.BINARY (the only target type
+            # this layer supports). Kept as an explicit, named failure
+            # rather than a silent KeyError so it stays correct if either
+            # set changes independently in the future.
+            supported = sorted(f"{ft.value}+{tt.value}" for ft, tt in _DISPATCH)
+            raise ValueError(
+                f"feature {name!r} declared as {feature_type.value!r} "
+                f"against a {TargetType.BINARY.value!r} target has no "
+                f"discovery method; supported combinations are {supported}"
+            )
+
+        if feature_type is FeatureType.CATEGORICAL and not (
+            _is_supported_categorical_dtype(series)
+        ):
             raise ValueError(
                 f"feature {name!r} has unsupported dtype {series.dtype}; "
                 "signapy.discover only supports categorical columns "
                 '(object, pandas "string", or pandas "category" dtype) in '
-                "this release. Continuous, ordinal, boolean, and "
-                "integer-coded-category features are not yet supported — "
-                "see docs/architecture.md."
+                "this release. Continuous features must be declared via "
+                "feature_types; ordinal, boolean, and integer-coded-category "
+                "features are not yet supported — see docs/architecture.md."
             )
+
         results.append(
-            analyze_categorical_feature(
+            analyzer(
                 name,
                 series,
                 target_valid_df[target],
