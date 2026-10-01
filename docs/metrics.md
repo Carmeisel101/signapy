@@ -372,12 +372,13 @@ in the architecture doc. SignaPy surfaces evidence; you make the call.
 - **Association is not causation**, for any metric here.
 - **A p-value's sensitivity to sample size** (mentioned per-metric above)
   applies everywhere a p-value appears.
-- **Missing-value exclusion changes the analyzed population.** Every metric
-  and `discover()` itself drop rows with a missing target, and — separately,
-  per feature — rows missing that particular feature's value. If missingness
-  isn't random (e.g. a sensor that fails more often under specific
-  conditions), the rows that remain are a biased sample of the whole, and
-  the evidence describes that biased subset, not the full population.
+- **Missing-value exclusion changes the analyzed population.** `discover()`
+  drops rows with a missing target and, separately per feature, rows missing
+  that particular feature's value; the low-level metric functions reject
+  missing values instead. If missingness isn't random (e.g. a sensor that
+  fails more often under specific conditions), the rows that remain are a
+  biased sample of the whole, and the evidence describes that biased subset,
+  not the full population.
 - **Repeated or clustered observations inflate apparent significance.** All
   of these tests assume independent observations. If your rows include
   repeated measurements of the same entity, or naturally cluster by group,
