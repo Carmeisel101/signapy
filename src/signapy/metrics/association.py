@@ -1,8 +1,9 @@
-"""Feature-level association: Cramér's V and point-biserial correlation.
+"""Feature-level association metrics for categorical, continuous, and ordinal data.
 
 Pure computation over a contingency table (:func:`cramers_v`) or a
-feature/target pair (:func:`point_biserial`). This module does not infer
-types, choose a method, or know anything about :mod:`signapy.results`.
+feature/target pair (:func:`point_biserial`, :func:`spearman_rho`). This
+module does not infer types, choose a method, or know anything about
+:mod:`signapy.results`.
 """
 
 from __future__ import annotations

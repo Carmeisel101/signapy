@@ -1,4 +1,4 @@
-"""Value-level localization for categorical features against a binary target.
+"""Value-level localization for categorical and ordinal features.
 
 Pure computation over a feature/target pair. This module does not infer
 types, choose a method, or know anything about :mod:`signapy.results`.
@@ -16,7 +16,7 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class CategoricalValueMetrics:
-    """Value-level evidence for one category of a categorical feature.
+    """Value-level evidence for one category or ordinal level.
 
     Attributes:
         value: The feature category being described.

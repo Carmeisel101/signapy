@@ -23,13 +23,12 @@ def build_value_results(
     *,
     positive_class: Hashable,
 ) -> tuple[ValueResult, ...]:
-    """Value-level evidence for a categorical feature against a binary target.
+    """Value-level evidence for a categorical or ordinal feature.
 
     Args:
-        feature: Categorical values, one per row. Callers (see
-            :func:`signapy.discovery.feature.analyze_categorical_feature`)
-            are responsible for applying SignaPy's missing-data policy
-            before calling this function; ``categorical_lift`` itself
+        feature: Categorical values or ordinal level labels, one per row.
+            Callers are responsible for applying SignaPy's missing-data
+            policy before calling this function; ``categorical_lift`` itself
             rejects missing values outright.
         target: Target labels, one per row, positionally aligned with
             ``feature`` (see :func:`~signapy.metrics.lift.categorical_lift`
