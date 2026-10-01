@@ -5,9 +5,10 @@
 Long-term mission: *find, quantify, localize, and validate predictive signal.*
 
 > **Status: pre-alpha (`0.1.0.dev0`).** `signapy.discover()` works against
-> **binary targets** with **categorical and continuous features** today.
-> Everything under [Planned next](#planned-next) — other feature/target
-> types, interactions, stability, and more — is not implemented yet.
+> **binary targets** with **categorical, continuous, and ordinal features**
+> today. Everything under [Planned next](#planned-next) — other
+> feature/target types, interactions, stability, and more — is not
+> implemented yet.
 
 ## The problem
 
@@ -97,38 +98,71 @@ report.feature("continuous_measurement").p_value  # its p-value
 report.feature("continuous_measurement").values  # always None (see below)
 ```
 
-`discover()` supports **categorical and continuous features against a
-binary target** (see [v0.1 scope](#v01-scope) below):
+An **ordinal** feature needs an explicit order — SignaPy never infers one,
+not from the values and never alphabetically — declared via an ordered
+pandas `Categorical`:
+
+```python
+df["severity"] = pd.Categorical(
+    df["severity"],
+    categories=["low", "medium", "high"],
+    ordered=True,
+)
+
+report = signapy.discover(
+    df,
+    target="converted",
+    positive_class=True,
+    feature_types={"severity": FeatureType.ORDINAL},
+)
+
+report.feature("severity").effect_size  # Spearman's rho
+report.feature(
+    "severity"
+).values  # support/rate/baseline/lift, in low->medium->high order
+```
+
+`discover()` supports **categorical, continuous, and ordinal features
+against a binary target** (see [v0.1 scope](#v01-scope) below):
 
 - Without `feature_types` (the default), every non-target column of `df`
   with an `object`, pandas `string`, or pandas `category` dtype is analyzed
   as categorical; other dtypes raise a clear error.
 - With `feature_types`, only the named columns are analyzed, each as its
-  declared type (`FeatureType.CATEGORICAL` or `FeatureType.CONTINUOUS` —
-  the only two supported so far). **Numeric columns are never silently
-  treated as continuous** — an integer column might be a measured quantity,
-  an ordinal level, or a category identifier, and SignaPy doesn't guess
-  which; declaring it via `feature_types` is required.
+  declared type (`FeatureType.CATEGORICAL`, `FeatureType.CONTINUOUS`, or
+  `FeatureType.ORDINAL` — the only three supported so far). **Numeric
+  columns are never silently treated as continuous, and categorical columns
+  are never silently treated as ordinal** — an integer column might be a
+  measured quantity, an ordinal level, or a category identifier, and
+  SignaPy doesn't guess which; declaring it via `feature_types` is
+  required, and an ordinal declaration additionally requires the column to
+  already be an ordered `Categorical`.
 - Categorical features get Cramér's V, a chi-square test, and per-category
-  `values` (support, target rate, baseline rate, lift). Continuous features
-  get a point-biserial correlation, its p-value, and group counts/means in
-  `details` — but **`values` is always `None`** for continuous features:
-  localizing *where within a continuous range* the signal lives needs
-  binning, which SignaPy doesn't do automatically (see
-  [`docs/architecture.md`](docs/architecture.md)).
+  `values` (support, target rate, baseline rate, lift), in order of first
+  appearance. Continuous features get a point-biserial correlation, its
+  p-value, and group counts/means in `details` — but **`values` is always
+  `None`** for continuous features: localizing *where within a continuous
+  range* the signal lives needs binning, which SignaPy doesn't do
+  automatically (see [`docs/architecture.md`](docs/architecture.md)).
+  Ordinal features get a Spearman rank correlation, its p-value, and the
+  same per-level `values` as categorical — but in the feature's *declared*
+  category order, not order of first appearance.
 
 See [`docs/metrics.md`](docs/metrics.md) for how to choose between and
-interpret `effect_size`/`p_value` for both feature types, and
+interpret `effect_size`/`p_value` across all three feature types
+(including why Spearman, not a naive Pearson correlation on level codes, is
+the right tool for ordinal data), and
 [`examples/binary_categorical_discovery.py`](examples/binary_categorical_discovery.py) /
-[`examples/mixed_categorical_continuous_discovery.py`](examples/mixed_categorical_continuous_discovery.py)
+[`examples/mixed_categorical_continuous_discovery.py`](examples/mixed_categorical_continuous_discovery.py) /
+[`examples/ordinal_binary_discovery.py`](examples/ordinal_binary_discovery.py)
 for runnable, printed examples.
 
 Also available: the low-level, pure statistical building blocks in
 `signapy.metrics` (`association.cramers_v`, `association.point_biserial`,
-`significance.chi_square`, `lift.categorical_lift`) that `discover()` is
-built on, the result models (`signapy.results.FeatureResult`, `ValueResult`,
-`DiscoveryReport`), and the semantic type enums
-(`signapy.profiling.FeatureType`, `TargetType`).
+`association.spearman_rho`, `significance.chi_square`,
+`lift.categorical_lift`) that `discover()` is built on, the result models
+(`signapy.results.FeatureResult`, `ValueResult`, `DiscoveryReport`), and the
+semantic type enums (`signapy.profiling.FeatureType`, `TargetType`).
 
 `signapy.discover()` characterizes univariate statistical relationships. It
 does not train a classifier, select features automatically, or evaluate how
@@ -144,8 +178,12 @@ Implemented so far:
   (p-value), and per-category support/target rate/baseline rate/lift
 - **Continuous features:** point-biserial correlation (effect size and
   p-value) and group counts/means; no value-level localization yet
+- **Ordinal features:** Spearman rank correlation (effect size and
+  p-value), and per-level support/target rate/baseline rate/lift in
+  declared category order; requires an explicit ordered `Categorical`
 - **Feature selection:** explicit, via the `feature_types` argument;
-  numeric/boolean columns are never inferred as a semantic type
+  numeric/boolean columns are never inferred as a semantic type, and an
+  order is never inferred for ordinal columns
 
 See [`docs/architecture.md`](docs/architecture.md) for the full design,
 including the missing-data and dtype policies this slice follows.
@@ -153,10 +191,11 @@ including the missing-data and dtype policies this slice follows.
 ## Planned next
 
 Not yet implemented: boolean features, semantic type overrides (e.g.
-integer-coded categories), ordinal features, multiclass or continuous
-targets, continuous-feature localization (binning), additional value-level
-metrics (risk difference, odds ratio, confidence intervals), interaction
-discovery, and stability analysis. See the
+integer-coded categories), multiclass or continuous targets,
+continuous-feature value-level localization (binning — unlike ordinal,
+which got this via its declared levels), additional value-level metrics
+(risk difference, odds ratio, confidence intervals), interaction discovery,
+and stability analysis. See the
 [discovery hierarchy](#discovery-hierarchy) above and
 [`docs/architecture.md`](docs/architecture.md) for how these fit the overall
 design.
