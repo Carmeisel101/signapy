@@ -8,35 +8,38 @@ rationale — see [`docs/architecture.md`](architecture.md) for that. See the
 [README](../README.md) for installation and the project's overall scope.
 
 > **Status:** the functions described here — `cramers_v`, `chi_square`,
-> `point_biserial`, and `categorical_lift` — are implemented in
-> `signapy.metrics`, and all except `point_biserial` are also wired into
-> `signapy.discover()` for categorical features; `point_biserial` is wired
-> in for continuous features via `discover(..., feature_types={...})`. You
-> can also call any of them directly on a contingency table or on
-> `feature`/`target` arrays, as this page mostly does, without going through
-> `discover()`.
+> `point_biserial`, `spearman_rho`, and `categorical_lift` — are implemented
+> in `signapy.metrics`, and all are wired into `signapy.discover()`:
+> `cramers_v`/`chi_square`/`categorical_lift` for categorical features
+> (automatically, or via `feature_types`), `point_biserial` for continuous
+> features and `spearman_rho` for ordinal ones (both only via
+> `discover(..., feature_types={...})`). You can also call any of them
+> directly on a contingency table or on `feature`/`target` arrays, as this
+> page mostly does, without going through `discover()`.
 
 ## 1. Overview
 
 SignaPy's metrics split into two levels that answer different questions, and
-the metric that applies depends on whether the feature is categorical or
-continuous:
+the metric that applies depends on the feature's declared type:
 
 | Level | Feature type | Metric | Question |
 | --- | --- | --- | --- |
 | Feature-level | Categorical | `cramers_v` | How strong is the overall association? |
 | Feature-level | Categorical | `chi_square` | Is the observed association unlikely under independence? |
 | Feature-level | Continuous | `point_biserial` | Do larger feature values go with the positive or negative class, and how strongly? |
+| Feature-level | Ordinal | `spearman_rho` | Do higher feature levels go with the positive or negative class, and how strongly? |
 | Value-level | Categorical | `categorical_lift` | Which individual categories are above or below baseline? |
+| Value-level | Ordinal | `categorical_lift` (reordered) | Which individual *levels* are above or below baseline, read in order? |
 | Value-level | Continuous | *(not yet implemented)* | Which *ranges* of values are above or below baseline? |
 
 Feature-level metrics summarize a feature *as a whole* against a target.
-Value-level metrics break that summary down by category (or, eventually,
-by range, for continuous features — see [§5a](#5a-no-continuous-lift-yet)).
-Neither level replaces the other: a feature can show a strong overall
-association that turns out to be driven by one category, or a weak overall
-association that still hides one category worth investigating. Read
-feature-level and value-level evidence together, not as substitutes.
+Value-level metrics break that summary down by category or level (or,
+eventually, by range, for continuous features — see
+[§6a](#6a-no-continuous-lift-yet)). Neither level replaces the other: a
+feature can show a strong overall association that turns out to be driven
+by one category, or a weak overall association that still hides one
+category worth investigating. Read feature-level and value-level evidence
+together, not as substitutes.
 
 `signapy.discover()` characterizes these univariate statistical
 relationships. It does not train a classifier, select features
@@ -79,7 +82,7 @@ which is what makes it useful for comparing features against each other.
   deserve very different confidence. Pair it with `chi_square` (or, later,
   a sample-support check) rather than reading it in isolation.
 - It doesn't tell you *which* categories drive the relationship — for that,
-  see [`categorical_lift`](#5-categorical-lift).
+  see [`categorical_lift`](#6-categorical-lift).
 
 `cramers_v` defaults to the Bergsma (2013) bias-corrected estimator
 (`bias_correction=True`), which reduces the small-sample upward bias of the
@@ -110,7 +113,7 @@ fields:
 not mean the effect is large, useful, or worth acting on. A p-value can be
 very small while the underlying association (as measured by Cramér's V) is
 practically negligible, especially with a large sample. See the
-[worked example](#7-worked-example-categorical-feature) below for exactly
+[worked example](#8-worked-example-categorical-feature) below for exactly
 this case.
 
 **Appropriate use and assumptions:** the chi-square test of independence
@@ -186,17 +189,86 @@ you want to know both the direction/strength of a linear relationship
   enough rows, a negligible `coefficient` can still be "significant."
 - `mean_difference` and `coefficient` describe association, not causation.
 - There's currently no continuous equivalent of `categorical_lift` — see
-  [§5a](#5a-no-continuous-lift-yet).
+  [§6a](#6a-no-continuous-lift-yet).
 
 `signapy`'s `point_biserial()` uses `scipy.stats.pointbiserialr` directly
 (a single call computes both the coefficient and its p-value). See the
 function docstring for exact validation rules (missing values, non-finite
 values, boolean features, minimum sample size, and so on).
 
-## 5. Categorical lift
+## 5. Spearman rank correlation
 
-**Primary question: which individual categories have higher or lower
-positive rates than the baseline?**
+**Primary question: do higher ordinal levels go with the positive or
+negative class, and how strongly?**
+
+`spearman_rho(feature, target, *, positive_class)` is the *ordinal*
+counterpart to `point_biserial`: it applies when the feature has a
+meaningful order but not a meaningful numeric distance between levels
+("satisfaction" of poor/fair/good/excellent, "severity" of low/medium/high)
+— exactly the case `point_biserial` is the wrong tool for, since it would
+treat the gap between any two adjacent levels as equal. It returns a
+`SpearmanResult`:
+
+- **`coefficient`** — Spearman's rho, in `[-1, 1]`: the Pearson correlation
+  between the *ranks* of the feature and the target, rather than between
+  their raw values.
+
+  | Coefficient | Meaning |
+  | --- | --- |
+  | `> 0` | Higher ordinal levels are associated with the positive class. |
+  | `< 0` | Higher ordinal levels are associated with the negative class. |
+  | `≈ 0` | No *monotonic* trend (see the caveat below). |
+
+  As with `point_biserial`, **the sign depends on which class you
+  configured as `positive_class`**, and reversing it reverses the sign
+  exactly, without changing the magnitude.
+- **`p_value`** — same interpretation as everywhere else on this page:
+  evidence against "no rank correlation," not a measure of how large or
+  useful the relationship is.
+- **`n`** / **`n_levels`** — how many rows went into the computation, and
+  how many distinct feature levels were actually observed among them.
+
+**Why rank correlation, not a Pearson correlation on level codes.** It's
+tempting to encode `low/medium/high` as `0/1/2` and just reuse
+`point_biserial` on those codes — don't. Pearson/point-biserial correlation
+assumes the *values* carry meaningful spacing: it treats the gap from `0`
+to `1` as identical to the gap from `1` to `2`. That is precisely the
+assumption ordinal data doesn't license. Spearman avoids it by using only
+the *rank order* of values, with ties (every row sharing a level) averaged
+by how many observations share that rank — which can give a meaningfully
+different number than naive integer codes when groups are unevenly sized.
+`spearman_rho()` does this rank transform internally
+(`scipy.stats.spearmanr`); feed it the level codes directly (e.g.
+`.cat.codes` from an ordered pandas `Categorical`) rather than pre-ranking
+them yourself.
+
+**When it's appropriate:** an ordinal feature (meaningful order, unknown or
+unequal spacing) and a binary target.
+
+**Limitations:**
+
+- **Spearman only detects *monotonic* trends.** If the middle level has the
+  highest (or lowest) target rate — "medium" satisfaction converting better
+  than both "low" and "high" — `coefficient` can read as near zero even
+  though the feature clearly relates to the target. This is the single most
+  important caveat for this metric: always pair it with the per-level
+  `categorical_lift` results (§6), which will show that kind of
+  non-monotonic pattern even when `coefficient` doesn't. See
+  [§10](#10-worked-example-ordinal-feature) for a worked illustration.
+- Like `chi_square`'s and `point_biserial`'s p-values, `p_value` is
+  sensitive to sample size.
+- `coefficient` describes association, not causation.
+- There is no continuous-style "mean difference" equivalent here: ordinal
+  levels don't have a numeric scale to report a difference *in*.
+
+## 6. Categorical lift
+
+**Primary question: which individual categories (or, for ordinal features,
+levels) have higher or lower positive rates than the baseline?**
+
+Used for both categorical and ordinal features — `discover()` calls the
+same `categorical_lift` either way and, for ordinal, reorders the result to
+the feature's declared category order (see [§10](#10-worked-example-ordinal-feature)).
 
 `categorical_lift(feature, target, *, positive_class)` returns one
 `CategoricalValueMetrics` per distinct feature value, each with:
@@ -222,7 +294,9 @@ one category with a notably high or low lift (or vice versa — a feature-wide
 association driven by several categories, none individually extreme). Use
 lift to find *where* signal lives once feature-level evidence suggests
 there's signal to look for, per the
-[categorical worked example](#7-worked-example-categorical-feature).
+[categorical worked example](#8-worked-example-categorical-feature) (or, for
+ordinal, [§10](#10-worked-example-ordinal-feature) — especially the
+non-monotonic case §5 warns about).
 
 **Watch support, not just lift.** A `lift` of `3.0` computed from 4 rows is
 much weaker evidence than a `lift` of `1.2` computed from 40,000 rows. High
@@ -235,7 +309,7 @@ p-value, no confidence interval) and does not imply causation — a category
 with high lift is *associated* with the positive class in this sample, not
 necessarily a cause of it.
 
-### 5a. No continuous lift yet
+### 6a. No continuous lift yet
 
 There is currently no continuous equivalent of `categorical_lift`. For a
 continuous feature, `discover()` always returns `values=None` — the
@@ -245,9 +319,11 @@ sharply above 40 units") requires binning the feature, and SignaPy
 deliberately doesn't do that automatically: bin boundaries are a modeling
 choice (equal-width? quantile? domain-specific cutoffs?) that this project
 isn't making on your behalf. It's planned future work — see
-[`docs/architecture.md`](architecture.md) — not an oversight.
+[`docs/architecture.md`](architecture.md) — not an oversight. Ordinal
+features don't have this gap: their levels are already discrete, so
+`categorical_lift` applies directly (§6), just reordered.
 
-## 6. How to use the metrics together
+## 7. How to use the metrics together
 
 For a **categorical** feature:
 
@@ -259,21 +335,33 @@ For a **categorical** feature:
 
 For a **continuous** feature, the analogous workflow collapses to one step,
 since `point_biserial` combines a directional effect size and a p-value
-(and there's no lift-equivalent yet, per [§5a](#5a-no-continuous-lift-yet)):
+(and there's no lift-equivalent yet, per [§6a](#6a-no-continuous-lift-yet)):
 
 1. **`point_biserial`** — is there a linear association, how strong is it,
    which direction does it point, and what's the size of the gap between
    groups in real units (`mean_difference`)?
 
+For an **ordinal** feature, use both — `spearman_rho` alone can miss a real
+relationship (§5's non-monotonic caveat), so don't skip the per-level step:
+
+1. **`spearman_rho`** — is there a monotonic rank association, how strong
+   is it, and which direction does it point?
+2. **`categorical_lift`**, reordered — which specific *levels* are pulling
+   the positive rate up or down, and does the per-level pattern look
+   monotonic or not? This step is what catches a non-monotonic relationship
+   `spearman_rho` alone would miss.
+
 Common combinations and how to read them:
 
 | Pattern | Reading |
 | --- | --- |
-| Low `p_value` + low `cramers_v`/`coefficient` | Statistically detectable, practically weak. With enough data, real but tiny effects become significant; don't treat this as an important feature on its own. |
+| Low `p_value` + low `cramers_v`/`\|coefficient\|` | Statistically detectable, practically weak. With enough data, real but tiny effects become significant; don't treat this as an important feature on its own. |
 | Meaningful `cramers_v` + informative lifts | Stronger evidence overall, with `categorical_lift` telling you which categories to look at or act on. |
-| Meaningful `\|coefficient\|` + a large `mean_difference` | Stronger evidence overall for a continuous feature: not just "detectable," but a sizeable, interpretable gap between the two groups. |
+| Meaningful `\|coefficient\|` (point-biserial) + a large `mean_difference` | Stronger evidence overall for a continuous feature: not just "detectable," but a sizeable, interpretable gap between the two groups. |
+| Meaningful `\|coefficient\|` (Spearman) + a clearly increasing/decreasing per-level pattern | Stronger evidence overall for an ordinal feature, and confirmation the relationship really is monotonic, not an artifact. |
 | Large lift with small `support` | Hypothesis-generating, not strong evidence. Worth a closer look (more data, a stability check across folds/time — [planned](architecture.md#12-future-stability-analysis)), not an immediate conclusion. |
-| Low `\|coefficient\|` alone | Weak *linear* evidence only — doesn't rule out a nonlinear relationship a correlation coefficient can't see (see §4's limitations). |
+| Low `\|coefficient\|` alone (point-biserial) | Weak *linear* evidence only — doesn't rule out a nonlinear relationship a correlation coefficient can't see (see §4's limitations). |
+| Low `\|coefficient\|` alone (Spearman) **but** a clear non-monotonic per-level pattern (e.g. "medium" peaks) | A real relationship Spearman can't see — read the per-level lifts, not just the coefficient (see §5's limitations and [§10](#10-worked-example-ordinal-feature)). |
 
 None of these numbers, alone or combined, tell you whether to keep a feature
 in a model — see the [statistical philosophy](architecture.md#8-statistical-philosophy)
@@ -313,7 +401,7 @@ in the architecture doc. SignaPy surfaces evidence; you make the call.
   scenario. SignaPy does not currently apply a correction (e.g.
   Bonferroni, Benjamini-Hochberg) — that judgment, for now, is yours.
 
-## 7. Worked example: categorical feature
+## 8. Worked example: categorical feature
 
 A feature `acquisition_channel` (`referral` / `organic` / `paid`) against a
 binary target `converted` (`yes` / `no`), 20,000 rows per channel, with
@@ -385,7 +473,7 @@ difference in conversion rate is worth acting on is a business question
 Cramér's V and chi-square can't answer; that judgment belongs to you, with
 this evidence as input.
 
-## 8. Worked example: mixed categorical and continuous features
+## 9. Worked example: mixed categorical and continuous features
 
 A categorical feature `category_context` (`low` / `medium` / `high`) and a
 continuous feature `continuous_measurement`, both against a binary target
@@ -445,4 +533,72 @@ and group means tell you the feature *as a whole* leans toward the positive
 class at higher values, but not, for example, whether the relationship is
 roughly linear across the whole range or concentrated above some threshold
 — that's exactly the continuous-localization gap described in
-[§5a](#5a-no-continuous-lift-yet).
+[§6a](#6a-no-continuous-lift-yet).
+
+## 10. Worked example: ordinal feature
+
+An ordinal feature `severity` (`low` < `medium` < `high`, declared via
+`pd.Categorical(..., ordered=True)`) against a binary target `outcome`, 30
+rows — the same dataset as
+[`examples/ordinal_binary_discovery.py`](../examples/ordinal_binary_discovery.py).
+
+```python
+import pandas as pd
+import signapy
+from signapy.profiling import FeatureType
+
+df["severity"] = pd.Categorical(
+    df["severity"], categories=["low", "medium", "high"], ordered=True
+)
+report = signapy.discover(
+    df,
+    target="outcome",
+    positive_class=True,
+    feature_types={"severity": FeatureType.ORDINAL},
+)
+report.feature("severity")
+```
+
+```text
+FeatureResult(feature='severity', feature_type=FeatureType.ORDINAL,
+    target_type=TargetType.BINARY, effect_size_method='spearman_rho',
+    effect_size=0.4898979485566356, n=30, missing_rate=0.0,
+    test_method='spearman', p_value=0.0059963724801474,
+    values=(ValueResult(value='low', support=10, target_count=2,
+                         target_rate=0.2, baseline_rate=0.5, lift=0.4),
+            ValueResult(value='medium', support=10, target_count=5,
+                         target_rate=0.5, baseline_rate=0.5, lift=1.0),
+            ValueResult(value='high', support=10, target_count=8,
+                         target_rate=0.8, baseline_rate=0.5, lift=1.6)),
+    details={'n_levels': 3})
+```
+
+**Interpretation.** `coefficient ≈ 0.49` with `p_value ≈ 0.006` is a clear,
+statistically detectable *monotonic* trend: as `severity` rises from `low`
+to `high`, the positive rate rises right along with it (0.20 → 0.50 →
+0.80, lift 0.4 → 1.0 → 1.6). `values` comes back in the declared
+`low, medium, high` order, not alphabetical or first-appearance order —
+reassigning the category order (or using a different column entirely)
+would reorder this output without touching the underlying data.
+
+**Now the caveat from §5, made concrete.** Take the same three group sizes
+and support, but make `medium` the peak instead of a midpoint on a rising
+trend — `low` and `high` both at a 0.2 rate, `medium` at 0.8:
+
+```text
+FeatureResult(..., effect_size_method='spearman_rho',
+    effect_size=0.0, p_value=1.0, ...,
+    values=(ValueResult(value='low', ..., target_rate=0.2, lift=0.5),
+            ValueResult(value='medium', ..., target_rate=0.8, lift=2.0),
+            ValueResult(value='high', ..., target_rate=0.2, lift=0.5)))
+```
+
+`coefficient` is exactly `0.0` and `p_value` is exactly `1.0` — Spearman
+reports *no relationship at all* — despite `medium` having a lift of `2.0`,
+double the baseline rate, with full support (10 rows). This is not a bug;
+it's exactly what §5 warns about: Spearman can only see monotonic trends,
+and a rise-then-fall pattern is, by definition, not monotonic. Anyone
+reading only `effect_size` here would wrongly conclude `severity` is
+irrelevant. Reading `values` catches what the single coefficient missed —
+which is precisely why §7 recommends never skipping the per-level step for
+ordinal features.

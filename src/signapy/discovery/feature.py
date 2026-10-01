@@ -1,5 +1,5 @@
-"""Feature-level discovery for one categorical or continuous feature
-against a binary target.
+"""Feature-level discovery for one categorical, continuous, or ordinal
+feature against a binary target.
 
 This module owns SignaPy's per-feature missing-data policy (dropping rows
 where *this* feature is missing, and reporting the resulting rate) and
@@ -15,7 +15,7 @@ from collections.abc import Hashable
 import pandas as pd
 
 from signapy.discovery.value import build_value_results
-from signapy.metrics.association import cramers_v, point_biserial
+from signapy.metrics.association import cramers_v, point_biserial, spearman_rho
 from signapy.metrics.significance import chi_square
 from signapy.profiling import FeatureType, TargetType
 from signapy.results import FeatureResult
@@ -198,4 +198,114 @@ def analyze_continuous_feature(
             "negative_mean": result.negative_mean,
             "mean_difference": result.mean_difference,
         },
+    )
+
+
+def analyze_ordinal_feature(
+    name: str,
+    feature: pd.Series,
+    target: pd.Series,
+    *,
+    positive_class: Hashable,
+) -> FeatureResult:
+    """Feature- and value-level discovery for one ordinal feature.
+
+    Applies the same per-feature missing-data policy as the categorical and
+    continuous cases: rows where ``feature`` is missing are excluded from
+    this feature's analysis only. ``target`` must already be restricted to
+    rows with a non-missing target value.
+
+    Unlike :func:`analyze_categorical_feature`/:func:`analyze_continuous_feature`,
+    this requires ``feature`` to already be an ordered pandas ``Categorical``
+    Series (``pd.CategoricalDtype(ordered=True)``) — the caller (see
+    :func:`signapy.discovery.discover`) is responsible for rejecting
+    anything else before calling this function, since validating that is a
+    DataFrame-level, not per-feature, concern.
+
+    Args:
+        name: Column name, used as ``FeatureResult.feature`` and in error
+            messages.
+        feature: The feature column, an ordered ``Categorical`` Series,
+            restricted to rows with a non-missing target but not yet to
+            non-missing feature values.
+        target: The binary target column, positionally aligned with
+            ``feature`` and restricted to the same non-missing-target rows,
+            with exactly two distinct values.
+        positive_class: The target value treated as the positive class.
+
+    Returns:
+        A :class:`~signapy.results.FeatureResult` with a Spearman rank
+        correlation (``effect_size_method="spearman_rho"``,
+        ``test_method="spearman"``, ``details={"n_levels": ...}``), and
+        per-level :class:`~signapy.results.ValueResult` objects — in the
+        feature's *declared* category order (``feature.cat.categories``),
+        not order of first appearance. A declared category with zero
+        observations in the feature-valid data is simply absent from
+        ``values``, not included with zero-filled fields.
+
+    Raises:
+        ValueError: Anything :func:`~signapy.metrics.association.spearman_rho`
+            raises for the feature-valid rank codes (fewer than two
+            distinct levels, too few observations, a target that is no
+            longer binary once this feature's missing values are dropped,
+            etc.), with the feature name added for context.
+    """
+    # Unlike the categorical/continuous analyzers, this keeps `feature` as
+    # a pandas Series rather than converting to a bare array right away:
+    # the declared category order and the integer rank codes both come
+    # from its .cat accessor, which a plain numpy array doesn't carry.
+    feature_series = pd.Series(feature)
+    target_values = pd.Series(target).to_numpy()
+
+    category_order = list(feature_series.cat.categories)
+
+    n_target_valid = len(feature_series)
+    missing_mask = feature_series.isna().to_numpy()
+    missing_rate = float(missing_mask.mean()) if n_target_valid else 0.0
+
+    valid_mask = ~missing_mask
+    feature_valid_series = feature_series[valid_mask]
+    target_valid = target_values[valid_mask]
+    n = int(valid_mask.sum())
+
+    codes = feature_valid_series.cat.codes.to_numpy()
+
+    try:
+        result = spearman_rho(codes, target_valid, positive_class=positive_class)
+    except ValueError as error:
+        raise ValueError(
+            f"could not compute association for feature {name!r}: {error}"
+        ) from error
+
+    # build_value_results (via categorical_lift) returns one ValueResult
+    # per observed level, in order of first appearance; reorder to the
+    # feature's declared category order instead. A declared category with
+    # no observations in this feature-valid subset has no ValueResult to
+    # reorder — categorical_lift never invents a zero-support entry — so it
+    # is simply absent from `values`, not zero-filled.
+    labels = feature_valid_series.to_numpy()
+    unordered_values = build_value_results(
+        labels, target_valid, positive_class=positive_class
+    )
+    values_by_label = {
+        value_result.value: value_result for value_result in unordered_values
+    }
+    values = tuple(
+        values_by_label[category]
+        for category in category_order
+        if category in values_by_label
+    )
+
+    return FeatureResult(
+        feature=name,
+        feature_type=FeatureType.ORDINAL,
+        target_type=TargetType.BINARY,
+        effect_size_method="spearman_rho",
+        effect_size=result.coefficient,
+        n=n,
+        missing_rate=missing_rate,
+        test_method="spearman",
+        p_value=result.p_value,
+        values=values,
+        details={"n_levels": result.n_levels},
     )
