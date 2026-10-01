@@ -573,7 +573,27 @@ def spearman_rho(
         )
 
     is_positive = target_array == positive_class
-    result = scipy.stats.spearmanr(feature_values, is_positive)
+
+    # Rank first, via scipy.stats.rankdata, rather than calling
+    # scipy.stats.spearmanr(feature_values, is_positive) directly.
+    # rankdata only needs comparisons (<, ==), which Decimal, arbitrary-
+    # precision int, and float all support exactly — so it ranks
+    # feature_values correctly regardless of dtype or magnitude, without
+    # first coercing through float64 (which would silently collapse
+    # distinct high-precision/huge-integer values into tied floats, per
+    # n.b. below). Its *output*, by contrast, is always a small, exactly
+    # float64-representable number (an integer or half-integer rank in
+    # [1, n]), so casting that to float64 loses nothing. scipy.stats.pearsonr
+    # on the two rank arrays is then the standard definition of Spearman's
+    # rho and reproduces spearmanr's own coefficient and p-value exactly
+    # (spearmanr computes the same thing internally) — but, unlike handing
+    # spearmanr the raw object-dtype array, never asks numpy to do
+    # arithmetic (mean/covariance) on non-float64 data, which is what
+    # breaks for object-dtype input on some numpy/scipy version
+    # combinations (see the regression test for this).
+    feature_ranks = scipy.stats.rankdata(feature_values, method="average").astype(float)
+    target_ranks = scipy.stats.rankdata(is_positive, method="average").astype(float)
+    result = scipy.stats.pearsonr(feature_ranks, target_ranks)
 
     return SpearmanResult(
         coefficient=float(result.statistic),
