@@ -157,9 +157,9 @@ def discover(
 ) -> DiscoveryReport:
     """Discover feature/value evidence against a binary target.
 
-    Computes feature-level evidence for each selected feature — and,
-    for categorical features, value-level evidence too — and returns them
-    as a :class:`~signapy.results.DiscoveryReport`.
+    Computes feature-level evidence for each selected feature — and, for
+    categorical and ordinal features, value-level evidence too — and returns
+    them as a :class:`~signapy.results.DiscoveryReport`.
 
     - **Categorical** features get bias-corrected Cramér's V, a chi-square
       test, and per-category support/target rate/baseline rate/lift, in
@@ -239,9 +239,9 @@ def discover(
        target and a non-missing value for that feature.
     4. ``FeatureResult.missing_rate`` is the fraction of target-valid rows
        where that feature is missing.
-    5. For categorical features, value-level baseline rate and lift are
-       computed from the same feature-valid rows used for that feature's
-       Cramér's V and chi-square.
+    5. For categorical and ordinal features, value-level baseline rate and
+       lift are computed from the same feature-valid rows used for that
+       feature's feature-level statistic.
     6. Infinite values are invalid, not missing — a continuous feature
        containing ``inf``/``-inf`` raises rather than having those rows
        silently dropped.

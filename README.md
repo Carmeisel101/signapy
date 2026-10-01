@@ -17,10 +17,10 @@ the target, and where within those features that signal lives. Today this means
 picking the right test for each feature/target combination (Cramér's V? Phi?
 Spearman? point-biserial?), running it by hand, and stitching the output together.
 
-SignaPy aims to make that a single, task-aware workflow. It infers what kind of
-feature and target it is looking at, chooses an appropriate method, and returns
-structured evidence. You shouldn't need to know ahead of time which statistical
-test applies.
+SignaPy aims to make that a single, task-aware workflow. It uses the feature
+types you declare (or the categorical-only default), chooses an appropriate
+method, and returns structured evidence. You shouldn't need to know ahead of
+time which statistical test applies.
 
 SignaPy discovers evidence of predictive signal.
 It does not decide what your model should use.
@@ -121,6 +121,10 @@ report.feature(
     "severity"
 ).values  # support/rate/baseline/lift, in low->medium->high order
 ```
+
+Pandas converts any value omitted from `categories=[...]` to a missing value;
+under SignaPy's missing-data policy, that row is then excluded from this
+feature's analysis. Make sure the declaration includes every intended level.
 
 `discover()` supports **categorical, continuous, and ordinal features
 against a binary target** (see [v0.1 scope](#v01-scope) below):

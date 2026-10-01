@@ -34,12 +34,12 @@ def _check_probability(name: str, value: float) -> None:
 
 @dataclass(frozen=True)
 class ValueResult:
-    """Value-level evidence for one value of a categorical feature.
+    """Value-level evidence for one category or ordinal level.
 
     Scoped to binary targets for v0.1: rates refer to the positive class.
 
     Attributes:
-        value: The feature value (category) being described.
+        value: The feature category or ordinal level being described.
         support: Number of rows with this value (non-missing target).
         target_count: Number of those rows where the target is positive.
         target_rate: ``target_count / support``.

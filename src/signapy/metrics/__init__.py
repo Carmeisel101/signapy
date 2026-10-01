@@ -8,13 +8,14 @@ the job of :mod:`signapy.discovery`.
 Modules:
 
 - ``association``: feature-level effect size, for a categorical feature
-  (:func:`~signapy.metrics.association.cramers_v`) or a continuous one
-  (:func:`~signapy.metrics.association.point_biserial`)
+  (:func:`~signapy.metrics.association.cramers_v`), a continuous one
+  (:func:`~signapy.metrics.association.point_biserial`), or an ordinal one
+  (:func:`~signapy.metrics.association.spearman_rho`)
 - ``significance``: hypothesis testing
   (:func:`~signapy.metrics.significance.chi_square`)
-- ``lift``: value-level localization for categorical features
-  (:func:`~signapy.metrics.lift.categorical_lift`); no continuous
-  equivalent yet (see ``docs/architecture.md``)
+- ``lift``: value-level localization for categorical and ordinal features
+  (:func:`~signapy.metrics.lift.categorical_lift`); no continuous equivalent
+  yet (see ``docs/architecture.md``)
 
 Each module validates its own inputs independently and raises ``ValueError``
 on invalid or degenerate input (e.g. empty data, a single category, a zero

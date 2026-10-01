@@ -77,11 +77,12 @@ and the target.
 | --- | --- | --- |
 | Categorical → Binary | Cramér's V | chi-square |
 | Boolean → Binary | Phi coefficient | chi-square |
-| Continuous/Ordinal → Binary | Spearman correlation, point-biserial correlation | (associated test) |
+| Continuous → Binary | Point-biserial correlation | point-biserial test |
+| Ordinal → Binary | Spearman rank correlation | Spearman test |
 
 ### Value-level: "Where within this feature does the signal live?"
 
-For categorical features with a binary target, candidate metrics:
+For categorical or ordinal features with a binary target, candidate metrics:
 
 - support (observation count)
 - target count
@@ -115,10 +116,10 @@ Defined in `signapy.profiling.types`:
 - `FeatureType`: `CONTINUOUS`, `ORDINAL`, `CATEGORICAL`, `BOOLEAN`
 - `TargetType`: `BINARY`, `MULTICLASS`, `CONTINUOUS`
 
-For v0.1, `BINARY` is the only supported target type, and `CATEGORICAL` is the
-first supported feature type. The other members exist so the result schema
-and method selection can be designed with them in mind. They do not imply
-support.
+For v0.1, `BINARY` is the only supported target type. `CATEGORICAL`,
+`CONTINUOUS`, and `ORDINAL` features are supported; `BOOLEAN` and the other
+target-type enum members exist so the result schema and method selection can
+be designed with them in mind, but do not imply support.
 
 ## 7. Results philosophy
 
@@ -136,12 +137,12 @@ SignaPy returns structured, immutable results (`signapy.results.models`):
     each method. If a detail becomes universal, promote it to a field.
   - `values` holds value-level results. `None` means "value-level discovery
     not performed" (e.g. a continuous feature). It is not an empty tuple.
-- **`ValueResult`**: value-level evidence for one categorical value against a
-  binary target: `value`, `support`, `target_count`, `target_rate`,
-  `baseline_rate`, `lift`. It is intentionally scoped to binary targets for
-  v0.1. Multiclass or regression targets will need different value-level
-  fields (per-class rates, target means). Add those as separate models rather
-  than making this one generic.
+- **`ValueResult`**: value-level evidence for one categorical value or
+  ordinal level against a binary target: `value`, `support`, `target_count`,
+  `target_rate`, `baseline_rate`, `lift`. It is intentionally scoped to
+  binary targets for v0.1. Multiclass or regression targets will need
+  different value-level fields (per-class rates, target means). Add those as
+  separate models rather than making this one generic.
 - **`DiscoveryReport`**: a thin container: `target`, `features`, and
   `feature(name)` lookup. Keep it thin. Presentation such as tables,
   `to_frame()`, and ranking views belongs in methods or helpers added only
@@ -374,9 +375,8 @@ live here; the actual statistics stay in `metrics`.
   - `missing_rate` is the fraction of *target-valid* rows (not all of
     `df`) where that feature is missing.
   - Value-level `baseline_rate` and `lift` are computed from the exact same
-    feature-valid rows used for that feature's Cramér's V and chi-square —
-    there is one contingency table per feature, and both the feature-level
-    and value-level evidence for that feature come from it.
+    feature-valid rows used for that feature's feature-level statistic, for
+    both categorical and ordinal features.
 
   Missing values are never treated as their own category and never
   imputed. This is a discovery-layer decision, not a metrics-layer one: the
@@ -450,9 +450,9 @@ def discover(
 - With `feature_types` given: its keys are the *only* columns analyzed, in
   `df`'s own column order (not the mapping's insertion order); `target`
   must not be a key; every key must be a column of `df`; every value must
-  resolve to a supported `FeatureType` (`CATEGORICAL` or `CONTINUOUS` — the
-  only two so far; `ORDINAL`/`BOOLEAN`/an invalid string all raise); an
-  empty mapping raises.
+  resolve to a supported `FeatureType` (`CATEGORICAL`, `CONTINUOUS`, or
+  `ORDINAL`; `BOOLEAN` and invalid strings raise); an empty mapping raises.
+  Ordinal support was added in the next slice, described in §10b.
 
 ### Settled decisions
 
@@ -513,7 +513,7 @@ def discover(
   `float`.
 - **Dispatch, not a growing conditional.** `discovery/__init__.py` holds a
   `_DISPATCH: dict[tuple[FeatureType, TargetType], analyzer]` mapping.
-  Both entries today target `TargetType.BINARY`; a future continuous or
+  All three entries today target `TargetType.BINARY`; a future continuous or
   multiclass target adds new dispatch entries rather than restructuring
   existing ones. An unmatched `(feature_type, target_type)` pair raises
   naming the feature, its declared type, the target type, and the
@@ -609,7 +609,10 @@ whole slice is built around.
   declared category with zero observations in the feature-valid subset is
   simply absent from the reordered tuple, not zero-filled:
   `categorical_lift` never invents a zero-support entry, and ordinal
-  doesn't either.
+  doesn't either. Conversely, pandas converts a source value omitted from
+  the declared `categories=[...]` list to a missing value; SignaPy then
+  excludes that row under its ordinary per-feature missing-data policy.
+  Users therefore need to declare every intended level.
 - **Spearman's "monotonic trends only" limitation is treated as a
   first-class caveat, not a footnote.** A feature whose middle level peaks
   (e.g. "medium" converts far better than both "low" and "high") can
@@ -633,8 +636,8 @@ increasing, decreasing, null, tied, and non-monotonic relationships; every
 documented invalid-input and degenerate case; declared-order value
 reordering (including a zero-support declared category); positive-class
 sign reversal (exact, not approximate, matching `point_biserial`'s
-existing invariant); and mixed discovery with categorical and continuous
-features in the same report.
+existing invariant); and mixed discovery with categorical, continuous, and
+ordinal features in the same report.
 
 ### Out of scope (this slice)
 
