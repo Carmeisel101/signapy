@@ -77,11 +77,12 @@ and the target.
 | --- | --- | --- |
 | Categorical → Binary | Cramér's V | chi-square |
 | Boolean → Binary | Phi coefficient | chi-square |
-| Continuous/Ordinal → Binary | Spearman correlation, point-biserial correlation | (associated test) |
+| Continuous → Binary | Point-biserial correlation | point-biserial test |
+| Ordinal → Binary | Spearman rank correlation | Spearman test |
 
 ### Value-level: "Where within this feature does the signal live?"
 
-For categorical features with a binary target, candidate metrics:
+For categorical or ordinal features with a binary target, candidate metrics:
 
 - support (observation count)
 - target count
@@ -115,10 +116,10 @@ Defined in `signapy.profiling.types`:
 - `FeatureType`: `CONTINUOUS`, `ORDINAL`, `CATEGORICAL`, `BOOLEAN`
 - `TargetType`: `BINARY`, `MULTICLASS`, `CONTINUOUS`
 
-For v0.1, `BINARY` is the only supported target type, and `CATEGORICAL` is the
-first supported feature type. The other members exist so the result schema
-and method selection can be designed with them in mind. They do not imply
-support.
+For v0.1, `BINARY` is the only supported target type. `CATEGORICAL`,
+`CONTINUOUS`, and `ORDINAL` features are supported; `BOOLEAN` and the other
+target-type enum members exist so the result schema and method selection can
+be designed with them in mind, but do not imply support.
 
 ## 7. Results philosophy
 
@@ -136,12 +137,12 @@ SignaPy returns structured, immutable results (`signapy.results.models`):
     each method. If a detail becomes universal, promote it to a field.
   - `values` holds value-level results. `None` means "value-level discovery
     not performed" (e.g. a continuous feature). It is not an empty tuple.
-- **`ValueResult`**: value-level evidence for one categorical value against a
-  binary target: `value`, `support`, `target_count`, `target_rate`,
-  `baseline_rate`, `lift`. It is intentionally scoped to binary targets for
-  v0.1. Multiclass or regression targets will need different value-level
-  fields (per-class rates, target means). Add those as separate models rather
-  than making this one generic.
+- **`ValueResult`**: value-level evidence for one categorical value or
+  ordinal level against a binary target: `value`, `support`, `target_count`,
+  `target_rate`, `baseline_rate`, `lift`. It is intentionally scoped to
+  binary targets for v0.1. Multiclass or regression targets will need
+  different value-level fields (per-class rates, target means). Add those as
+  separate models rather than making this one generic.
 - **`DiscoveryReport`**: a thin container: `target`, `features`, and
   `feature(name)` lookup. Keep it thin. Presentation such as tables,
   `to_frame()`, and ranking views belongs in methods or helpers added only
@@ -190,17 +191,19 @@ src/signapy/
 │   ├── (inference)    # planned: propose semantic types from data
 │   └── (summary)      # planned: missingness, cardinality, prevalence
 ├── metrics/           # pure statistics: arrays/tables in, numbers out
-│   ├── association.py  # implemented: cramers_v, point_biserial
-│   │                    #   (Phi/Spearman for other feature types planned)
+│   ├── association.py  # implemented: cramers_v, point_biserial,
+│   │                    #   spearman_rho (Phi for boolean features planned)
 │   ├── significance.py # implemented: chi_square, ChiSquareResult
 │   └── lift.py          # implemented: categorical_lift, CategoricalValueMetrics
-│                        #   (no continuous equivalent yet, see §10a)
+│                        #   (reused for ordinal, reordered; no continuous
+│                        #   equivalent yet, see §10a)
 ├── discovery/         # user-facing workflows: type → method → results
 │   ├── __init__.py     # implemented: discover(df, target, *, positive_class,
 │   │                    #   feature_types=None), method dispatch table
 │   ├── feature.py       # implemented: analyze_categorical_feature,
-│   │                    #   analyze_continuous_feature
-│   └── value.py          # implemented: build_value_results (categorical only)
+│   │                    #   analyze_continuous_feature, analyze_ordinal_feature
+│   └── value.py          # implemented: build_value_results (categorical and
+│                        #   ordinal; discovery/feature.py reorders for ordinal)
 └── results/
     └── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
 ```
@@ -372,9 +375,8 @@ live here; the actual statistics stay in `metrics`.
   - `missing_rate` is the fraction of *target-valid* rows (not all of
     `df`) where that feature is missing.
   - Value-level `baseline_rate` and `lift` are computed from the exact same
-    feature-valid rows used for that feature's Cramér's V and chi-square —
-    there is one contingency table per feature, and both the feature-level
-    and value-level evidence for that feature come from it.
+    feature-valid rows used for that feature's feature-level statistic, for
+    both categorical and ordinal features.
 
   Missing values are never treated as their own category and never
   imputed. This is a discovery-layer decision, not a metrics-layer one: the
@@ -448,9 +450,9 @@ def discover(
 - With `feature_types` given: its keys are the *only* columns analyzed, in
   `df`'s own column order (not the mapping's insertion order); `target`
   must not be a key; every key must be a column of `df`; every value must
-  resolve to a supported `FeatureType` (`CATEGORICAL` or `CONTINUOUS` — the
-  only two so far; `ORDINAL`/`BOOLEAN`/an invalid string all raise); an
-  empty mapping raises.
+  resolve to a supported `FeatureType` (`CATEGORICAL`, `CONTINUOUS`, or
+  `ORDINAL`; `BOOLEAN` and invalid strings raise); an empty mapping raises.
+  Ordinal support was added in the next slice, described in §10b.
 
 ### Settled decisions
 
@@ -511,7 +513,7 @@ def discover(
   `float`.
 - **Dispatch, not a growing conditional.** `discovery/__init__.py` holds a
   `_DISPATCH: dict[tuple[FeatureType, TargetType], analyzer]` mapping.
-  Both entries today target `TargetType.BINARY`; a future continuous or
+  All three entries today target `TargetType.BINARY`; a future continuous or
   multiclass target adds new dispatch entries rather than restructuring
   existing ones. An unmatched `(feature_type, target_type)` pair raises
   naming the feature, its declared type, the target type, and the
@@ -526,12 +528,125 @@ def discover(
 Confirmed non-goals, unchanged from the spec: classifier training,
 multivariate/interaction analysis, automatic feature selection, automatic
 continuous binning, per-bin lift, confidence intervals, multiple-testing
-correction, cluster-aware tests, ordinal discovery, multiclass or
-continuous targets, and stability analysis. See §12 and the "Statistical
-limitations" section of `docs/metrics.md` for the general caveats
-(causation, sample-size sensitivity, clustering, no out-of-sample
-validation, missing-data population shift, multiple comparisons) that apply
-across every metric in this project, not just the new one.
+correction, cluster-aware tests, multiclass or continuous targets, and
+stability analysis. See §12 and the "Statistical limitations" section of
+`docs/metrics.md` for the general caveats (causation, sample-size
+sensitivity, clustering, no out-of-sample validation, missing-data
+population shift, multiple comparisons) that apply across every metric in
+this project, not just the new one. (Ordinal discovery, listed as out of
+scope here originally, was implemented next — see §10b.)
+
+## 10b. Third vertical slice: ordinal discovery (implemented)
+
+```text
+ordinal feature (ordered Categorical) → binary target
+        ↓
+feature-level discovery: Spearman rank correlation (spearman_rho)
+        ↓
+value-level discovery: categorical_lift, reordered to the
+                       feature's declared category order
+```
+
+Extends `signapy.discover()`'s `feature_types` to accept
+`FeatureType.ORDINAL`, on branch `feature/ordinal-binary-discovery`. Sits
+between categorical and continuous: order is meaningful, but the distance
+between levels isn't assumed to be — the central design constraint this
+whole slice is built around.
+
+### Settled decisions
+
+- **Explicit order, never inferred.** `FeatureType.ORDINAL` requires the
+  column to already be an ordered pandas `Categorical`
+  (`pd.Categorical(df[col], categories=[...], ordered=True)`). SignaPy
+  never infers that `"low"`, `"medium"`, `"high"` are ordered, and never
+  falls back to alphabetical order — consistent with [§6, Planned
+  types](#6-planned-types)'s "never guess semantic type from values"
+  principle, and with the numeric-column precedent set in §10a. Two
+  distinct errors cover the two distinct mistakes: declaring a column that
+  isn't a `category` dtype at all, versus declaring one that is but has
+  `ordered=False` (see `_check_ordinal_dtype` in `discovery/__init__.py`).
+- **Spearman, not Pearson/point-biserial on integer level codes.** This was
+  the single most important call to get right. Point-biserial on raw codes
+  (`low=0, medium=1, high=2`) implicitly assumes equally-spaced levels —
+  exactly what "ordinal" means *not* assuming. Verified numerically during
+  design: for an unevenly-sized three-level feature (10/10/180), naive
+  Pearson-on-codes gave `0.3713` while true tie-aware Spearman gave
+  `0.3585` — different numbers, because Spearman's internal rank transform
+  weights each tied level by how many observations share it, while raw
+  codes don't. `spearman_rho()` (`signapy/metrics/association.py`) takes
+  rank/level codes and calls `scipy.stats.spearmanr` directly, which does
+  this tie-averaging internally — never take the shortcut of calling
+  `point_biserial()` on integer codes instead.
+- **Degenerate-input guards, added from concrete `scipy` behavior, not
+  assumption.** Verified directly before implementing:
+  - A constant feature (one distinct level) makes `scipy.stats.spearmanr`
+    return `nan`/`nan` **and** emit a `ConstantInputWarning` — which, like
+    the complex-number case in `point_biserial`'s dtype-validation fix,
+    would fail this project's `pytest` `filterwarnings=error` config.
+    `spearman_rho` checks for fewer than 2 distinct levels and raises
+    `ValueError` before ever calling `scipy`.
+  - `n=2` returns a defined coefficient but `pvalue=nan`, silently, with no
+    warning at all. `spearman_rho` has its own
+    `_MIN_SPEARMAN_OBSERVATIONS = 3` guard (mirroring
+    `_MIN_POINT_BISERIAL_OBSERVATIONS`, same `n - 2 >= 1` degrees-of-freedom
+    reasoning), independent of the "fewer than 2 levels" check — a feature
+    can have exactly 2 levels and still fail this guard with too few total
+    rows.
+- **Validation reuse, not duplication.** `spearman_rho` shares
+  `point_biserial`'s `_validate_real_numeric_feature` helper (rejecting
+  boolean, datetime/timedelta, complex, and other non-real values) — now
+  parameterized with a `caller_name` so error messages correctly say
+  `"spearman_rho"` rather than hardcoding `"point_biserial"`. Both
+  functions need the same "real numeric input" guarantee; writing it twice
+  in the same module would have been pure duplication, not the
+  module-independence duplication pattern `_validate_contingency_table`
+  uses *across* `association.py`/`significance.py`.
+- **Value-level evidence reuses `categorical_lift`/`build_value_results`
+  unchanged, reordered afterward.** `analyze_ordinal_feature`
+  (`discovery/feature.py`) calls `build_value_results` exactly as the
+  categorical path does — getting results in order of first appearance —
+  then reorders that tuple to the feature's `.cat.categories` order. A
+  declared category with zero observations in the feature-valid subset is
+  simply absent from the reordered tuple, not zero-filled:
+  `categorical_lift` never invents a zero-support entry, and ordinal
+  doesn't either. Conversely, pandas converts a source value omitted from
+  the declared `categories=[...]` list to a missing value; SignaPy then
+  excludes that row under its ordinary per-feature missing-data policy.
+  Users therefore need to declare every intended level.
+- **Spearman's "monotonic trends only" limitation is treated as a
+  first-class caveat, not a footnote.** A feature whose middle level peaks
+  (e.g. "medium" converts far better than both "low" and "high") can
+  produce `spearman_rho`'s `coefficient = 0.0` *exactly*, despite a real,
+  strong per-level relationship — verified with a constructed example
+  (`docs/metrics.md` §10): symmetric low/high rates around a peaked middle
+  level give `coefficient=0.0, p_value=1.0` while the middle level's lift
+  is `2.0`. This is why `docs/metrics.md` §7 recommends always reading the
+  reordered `values` for an ordinal feature, not just `effect_size` —
+  mirrored by a dedicated regression test in `tests/test_spearman.py`.
+- **`details` for ordinal is `{"n_levels": ...}`,** not empty and not
+  carrying a redundant "statistic" (unlike `chi_square`, Spearman's
+  statistic *is* the coefficient — there's no separate raw test statistic
+  to report). `n_levels` — the count of distinct observed levels — gives
+  useful context `FeatureResult.n` alone doesn't (e.g. distinguishing "3
+  levels declared, 3 observed" from "4 declared, only 2 observed after
+  filtering").
+
+Tests (`tests/test_spearman.py`, `tests/test_ordinal_discovery.py`) cover
+increasing, decreasing, null, tied, and non-monotonic relationships; every
+documented invalid-input and degenerate case; declared-order value
+reordering (including a zero-support declared category); positive-class
+sign reversal (exact, not approximate, matching `point_biserial`'s
+existing invariant); and mixed discovery with categorical, continuous, and
+ordinal features in the same report.
+
+### Out of scope (this slice)
+
+Confirmed non-goals: ordinal value-level confidence intervals, ordinal
+interaction effects, boolean-feature discovery (`FeatureType.BOOLEAN`
+remains unsupported), semantic type inference (an ordered `Categorical` is
+still a deliberate, explicit declaration, not something SignaPy proposes),
+and everything else §10a already excludes (multiclass/continuous targets,
+stability analysis, multiple-testing correction, and so on).
 
 ## 11. Future: interaction discovery
 

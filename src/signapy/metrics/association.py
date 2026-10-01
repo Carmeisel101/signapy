@@ -1,8 +1,9 @@
-"""Feature-level association: Cramér's V and point-biserial correlation.
+"""Feature-level association metrics for categorical, continuous, and ordinal data.
 
 Pure computation over a contingency table (:func:`cramers_v`) or a
-feature/target pair (:func:`point_biserial`). This module does not infer
-types, choose a method, or know anything about :mod:`signapy.results`.
+feature/target pair (:func:`point_biserial`, :func:`spearman_rho`). This
+module does not infer types, choose a method, or know anything about
+:mod:`signapy.results`.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Hashable
 from dataclasses import dataclass
 from decimal import Decimal
-from numbers import Real
+from numbers import Rational, Real
 
 import numpy as np
 import numpy.typing as npt
@@ -131,8 +132,15 @@ def cramers_v(
 _MIN_POINT_BISERIAL_OBSERVATIONS = 3
 
 
-def _validate_real_numeric_feature(array: np.ndarray) -> None:
-    """Require every feature value to be a real, non-boolean number."""
+def _validate_real_numeric_feature(array: np.ndarray, *, caller_name: str) -> None:
+    """Require every feature value to be a real, non-boolean number.
+
+    Shared by :func:`point_biserial` and :func:`spearman_rho` — both need a
+    feature of plain real-valued measurements/ranks, not categorical
+    booleans, calendar dates/durations, or complex numbers. ``caller_name``
+    (e.g. ``"point_biserial"``) is folded into the error messages so they
+    name whichever function the caller actually called.
+    """
     object_values = array if array.dtype == object else ()
 
     if pd.api.types.is_bool_dtype(array.dtype) or any(
@@ -140,7 +148,7 @@ def _validate_real_numeric_feature(array: np.ndarray) -> None:
     ):
         raise ValueError(
             "feature must not be boolean; a boolean feature is categorical, "
-            "not continuous, and unsupported by point_biserial in this "
+            f"not continuous, and unsupported by {caller_name} in this "
             "release (see signapy.metrics.lift.categorical_lift instead)"
         )
 
@@ -156,7 +164,7 @@ def _validate_real_numeric_feature(array: np.ndarray) -> None:
     ):
         raise ValueError(
             f"feature must not be datetime- or timedelta-valued (got dtype "
-            f"{array.dtype}); point_biserial treats values as continuous "
+            f"{array.dtype}); {caller_name} treats values as continuous "
             "measurements, not calendar dates or durations — convert to a "
             "numeric measurement (e.g. days since a reference date) before "
             "calling if that's what you intend"
@@ -167,7 +175,7 @@ def _validate_real_numeric_feature(array: np.ndarray) -> None:
     ):
         raise ValueError(
             f"feature must be real-valued (got dtype {array.dtype}); "
-            "point_biserial does not support complex numbers, which would "
+            f"{caller_name} does not support complex numbers, which would "
             "otherwise be silently truncated to their real component"
         )
 
@@ -182,6 +190,14 @@ def _validate_real_numeric_feature(array: np.ndarray) -> None:
             f"feature must be numeric; only real numeric values are accepted, "
             f"got dtype {array.dtype}"
         )
+
+
+def _is_finite_real(value: Real | Decimal) -> bool:
+    if isinstance(value, Decimal):
+        return value.is_finite()
+    if isinstance(value, Rational):
+        return True
+    return bool(np.isfinite(value))
 
 
 @dataclass(frozen=True)
@@ -316,7 +332,7 @@ def point_biserial(
             "or impute before calling"
         )
 
-    _validate_real_numeric_feature(feature_array)
+    _validate_real_numeric_feature(feature_array, caller_name="point_biserial")
 
     try:
         feature_values = pd.to_numeric(
@@ -375,4 +391,213 @@ def point_biserial(
         positive_mean=positive_mean,
         negative_mean=negative_mean,
         mean_difference=positive_mean - negative_mean,
+    )
+
+
+# Mirrors _MIN_POINT_BISERIAL_OBSERVATIONS: Spearman's p-value also needs
+# degrees of freedom n - 2 >= 1 to be well-defined. Below this, scipy's
+# spearmanr can return a NaN p-value without raising or warning at all.
+_MIN_SPEARMAN_OBSERVATIONS = 3
+
+
+@dataclass(frozen=True)
+class SpearmanResult:
+    """Spearman rank correlation between an ordinal feature and a binary target.
+
+    Attributes:
+        coefficient: Spearman's rho, in ``[-1, 1]``. Positive means higher
+            feature ranks are associated with the positive class; negative
+            means the opposite; near zero means no *monotonic* trend (see
+            :func:`spearman_rho`'s docstring for what that specifically
+            does and doesn't rule out).
+        p_value: p-value for the null hypothesis that the true rank
+            correlation is zero.
+        n: Number of (feature, target) pairs used.
+        n_levels: Number of distinct feature values (ranks/levels) observed
+            among those pairs.
+    """
+
+    coefficient: float
+    p_value: float
+    n: int
+    n_levels: int
+
+    def __post_init__(self) -> None:
+        if not -1.0 - 1e-9 <= self.coefficient <= 1.0 + 1e-9:
+            raise ValueError(f"coefficient must be in [-1, 1], got {self.coefficient}")
+        if not 0.0 <= self.p_value <= 1.0:
+            raise ValueError(f"p_value must be in [0, 1], got {self.p_value}")
+        if self.n < 1:
+            raise ValueError(f"n must be positive, got {self.n}")
+        if self.n_levels < 1:
+            raise ValueError(f"n_levels must be positive, got {self.n_levels}")
+        if self.n_levels > self.n:
+            raise ValueError(f"n_levels ({self.n_levels}) cannot exceed n ({self.n})")
+
+
+def spearman_rho(
+    feature: npt.ArrayLike, target: npt.ArrayLike, *, positive_class: Hashable
+) -> SpearmanResult:
+    """Spearman rank correlation between an ordinal feature and a binary target.
+
+    Spearman's rho is the Pearson correlation between the *ranks* of
+    ``feature`` and the target (encoded 1 for ``positive_class`` and 0
+    otherwise), rather than between their raw values. That distinction is
+    exactly what makes it the right tool for ordinal data: it only uses the
+    *order* of feature values, never their spacing.
+
+    **Do not substitute a direct call to** :func:`point_biserial` **on
+    integer level codes as a shortcut.** Pearson/point-biserial correlation
+    on raw codes implicitly assumes those codes are equally spaced (that
+    the gap between level 0 and 1 equals the gap between 1 and 2) — an
+    assumption ordinal data explicitly does not license. Spearman's
+    internal rank transform instead weights each tied level by how many
+    observations share it, which is a materially different, and more
+    appropriate, computation for unevenly-sized groups. Feed this function
+    the level codes directly (e.g. ``.cat.codes`` from an ordered pandas
+    ``Categorical``); it performs its own rank transform via
+    :func:`scipy.stats.spearmanr`, including the tie-averaging that a
+    naive Pearson-on-codes calculation would skip.
+
+    Args:
+        feature: A 1D array-like of ordinal level codes (or any real-valued
+            ranks), one per row. Only the relative *order* of values
+            matters, not their magnitude or spacing. Same type
+            restrictions as :func:`point_biserial`'s ``feature`` (no
+            boolean, datetime, timedelta, complex, or other non-real
+            values — see that function's docstring for the full list).
+        target: A 1D array-like of target labels, one per row, positionally
+            aligned with ``feature`` (not by pandas index, if both are
+            ``Series`` — see :func:`signapy.metrics.lift.categorical_lift`
+            for what that distinction means in practice). Must have exactly
+            two distinct values.
+        positive_class: The target value encoded as 1 (the "positive" side
+            of the correlation's sign). Reversing this reverses the sign of
+            ``coefficient`` exactly, not its magnitude.
+
+    Returns:
+        A :class:`SpearmanResult` with the coefficient, its p-value, and
+        how many observations/distinct levels went into it.
+
+    Raises:
+        ValueError: If ``feature`` or ``target`` is not one-dimensional, if
+            ``feature`` is boolean (including boolean values stored with
+            ``object`` dtype), datetime-, timedelta-, or complex-valued, or
+            otherwise not real-valued numeric, if they have different
+            lengths, if either is empty, if either contains missing values,
+            if ``feature`` contains a non-finite value (``inf`` or
+            ``-inf``), if ``target`` does not have exactly two distinct
+            values, if ``positive_class`` is not one of them, if fewer than
+            :data:`_MIN_SPEARMAN_OBSERVATIONS` total observations remain,
+            or if ``feature`` has fewer than two distinct levels (a
+            constant feature, for which rank correlation is undefined).
+
+    One statistical caveat worth knowing: Spearman only detects *monotonic*
+    trends. A feature whose middle level has the highest (or lowest)
+    target rate — "medium" converting better than both "low" and "high" —
+    can show a weak Spearman coefficient even though the feature clearly
+    relates to the target; the per-level evidence (support, target rate,
+    lift — see :func:`signapy.metrics.lift.categorical_lift`) is what
+    surfaces that kind of non-monotonic pattern.
+
+    Uses :func:`scipy.stats.spearmanr`, which handles tied ranks — which
+    every feature value sharing an ordinal level will produce — by
+    averaging, consistent with the standard definition of Spearman's rho.
+    """
+    feature_array = np.asarray(feature)
+    target_array = np.asarray(target)
+
+    if feature_array.ndim != 1:
+        raise ValueError(
+            f"feature must be one-dimensional, got shape {feature_array.shape}"
+        )
+    if target_array.ndim != 1:
+        raise ValueError(
+            f"target must be one-dimensional, got shape {target_array.shape}"
+        )
+
+    if len(feature_array) != len(target_array):
+        raise ValueError(
+            f"feature and target must have the same length, got "
+            f"{len(feature_array)} and {len(target_array)}"
+        )
+    if len(feature_array) == 0:
+        raise ValueError("feature and target must not be empty")
+
+    if pd.isna(feature_array).any():
+        raise ValueError(
+            "spearman_rho does not accept missing feature values; clean "
+            "or impute before calling"
+        )
+    if pd.isna(target_array).any():
+        raise ValueError(
+            "spearman_rho does not accept missing target values; clean "
+            "or impute before calling"
+        )
+
+    _validate_real_numeric_feature(feature_array, caller_name="spearman_rho")
+
+    feature_values = feature_array
+    if not all(_is_finite_real(value) for value in feature_values):
+        raise ValueError(
+            "feature must not contain infinite values (inf or -inf); "
+            "resolve or drop these rows before calling"
+        )
+
+    unique_targets = pd.unique(target_array)
+    if len(unique_targets) != 2:
+        labels = sorted(str(value) for value in unique_targets)
+        raise ValueError(
+            f"spearman_rho requires a binary target, found "
+            f"{len(unique_targets)} distinct classes: {labels}"
+        )
+    if positive_class not in unique_targets:
+        labels = sorted(str(value) for value in unique_targets)
+        raise ValueError(
+            f"positive_class {positive_class!r} is not one of the observed "
+            f"target classes {labels}; check for a typo or the wrong value"
+        )
+
+    n = len(feature_values)
+    if n < _MIN_SPEARMAN_OBSERVATIONS:
+        raise ValueError(
+            f"spearman_rho needs at least {_MIN_SPEARMAN_OBSERVATIONS} "
+            f"observations to compute a well-defined statistic, got {n}"
+        )
+
+    unique_levels = np.unique(feature_values)
+    if len(unique_levels) < 2:
+        raise ValueError(
+            "feature has fewer than 2 distinct levels (a constant feature); "
+            "Spearman rank correlation is undefined"
+        )
+
+    is_positive = target_array == positive_class
+
+    # Rank first, via scipy.stats.rankdata, rather than calling
+    # scipy.stats.spearmanr(feature_values, is_positive) directly.
+    # rankdata only needs comparisons (<, ==), which Decimal, arbitrary-
+    # precision int, and float all support exactly — so it ranks
+    # feature_values correctly regardless of dtype or magnitude, without
+    # first coercing through float64 (which would silently collapse
+    # distinct high-precision/huge-integer values into tied floats, per
+    # n.b. below). Its *output*, by contrast, is always a small, exactly
+    # float64-representable number (an integer or half-integer rank in
+    # [1, n]), so casting that to float64 loses nothing. scipy.stats.pearsonr
+    # on the two rank arrays is then the standard definition of Spearman's
+    # rho and reproduces spearmanr's own coefficient and p-value exactly
+    # (spearmanr computes the same thing internally) — but, unlike handing
+    # spearmanr the raw object-dtype array, never asks numpy to do
+    # arithmetic (mean/covariance) on non-float64 data, which is what
+    # breaks for object-dtype input on some numpy/scipy version
+    # combinations (see the regression test for this).
+    feature_ranks = scipy.stats.rankdata(feature_values, method="average").astype(float)
+    target_ranks = scipy.stats.rankdata(is_positive, method="average").astype(float)
+    result = scipy.stats.pearsonr(feature_ranks, target_ranks)
+
+    return SpearmanResult(
+        coefficient=float(result.statistic),
+        p_value=float(result.pvalue),
+        n=n,
+        n_levels=len(unique_levels),
     )

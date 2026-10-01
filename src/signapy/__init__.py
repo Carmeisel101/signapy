@@ -1,7 +1,7 @@
 """SignaPy: exploratory feature discovery for labeled datasets.
 
-SignaPy is in early development. ``signapy.discover`` currently supports one
-slice: a binary target against categorical features. See
+SignaPy is in early development. ``signapy.discover`` currently supports a
+binary target against categorical, continuous, and ordinal features. See
 ``docs/architecture.md`` for the design contract and roadmap, and
 ``docs/metrics.md`` for how to interpret the evidence it returns.
 """
