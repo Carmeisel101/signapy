@@ -374,8 +374,11 @@ class TestMixedDiscoveryRejections:
                 feature_types={"category_context": FeatureType.BOOLEAN},
             )
 
-    def test_rejects_ordinal_declared_feature_type(self):
-        with pytest.raises(ValueError, match="not yet supported"):
+    def test_ordinal_is_an_accepted_type_but_still_needs_the_right_dtype(self):
+        # ORDINAL is a supported FeatureType (see tests/test_ordinal_discovery.py
+        # for the full ordinal slice); declaring a plain object-dtype column
+        # as ORDINAL should fail on dtype, not on the type being unsupported.
+        with pytest.raises(ValueError, match="ordered pandas Categorical"):
             signapy.discover(
                 mixed_df(),
                 target="outcome",

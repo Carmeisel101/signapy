@@ -8,20 +8,23 @@ into :mod:`signapy.results` models.
 Modules:
 
 - ``feature``: feature-level discovery for one categorical feature
-  (:func:`~signapy.discovery.feature.analyze_categorical_feature`) or one
+  (:func:`~signapy.discovery.feature.analyze_categorical_feature`), one
   continuous feature
-  (:func:`~signapy.discovery.feature.analyze_continuous_feature`)
+  (:func:`~signapy.discovery.feature.analyze_continuous_feature`), or one
+  ordinal feature
+  (:func:`~signapy.discovery.feature.analyze_ordinal_feature`)
 - ``value``: value-level discovery, adapting
   :func:`~signapy.metrics.lift.categorical_lift` to
   :class:`~signapy.results.ValueResult`
-  (:func:`~signapy.discovery.value.build_value_results`). Categorical
-  features only — continuous localization (binning) is deferred (see
-  ``docs/architecture.md``).
+  (:func:`~signapy.discovery.value.build_value_results`). Reused by both
+  the categorical and ordinal analyzers (ordinal reorders the result to
+  its declared category order); no continuous equivalent yet — continuous
+  localization (binning) is deferred (see ``docs/architecture.md``).
 
 This module's :func:`discover` is the top-level entry point, exported as
-``signapy.discover``. It supports categorical and continuous features
-against a binary target; :data:`_DISPATCH` is where support for additional
-``(FeatureType, TargetType)`` combinations will be added.
+``signapy.discover``. It supports categorical, continuous, and ordinal
+features against a binary target; :data:`_DISPATCH` is where support for
+additional ``(FeatureType, TargetType)`` combinations will be added.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import pandas as pd
 from signapy.discovery.feature import (
     analyze_categorical_feature,
     analyze_continuous_feature,
+    analyze_ordinal_feature,
 )
 from signapy.profiling import FeatureType, TargetType
 from signapy.results import DiscoveryReport, FeatureResult
@@ -43,18 +47,23 @@ _FeatureAnalyzer = Callable[..., FeatureResult]
 
 # Method dispatch: which analyzer handles a given (declared feature type,
 # target type) combination. Adding a new supported combination (e.g. a
-# continuous target, or ordinal features) means adding an entry here and to
+# continuous target, or boolean features) means adding an entry here and to
 # _SUPPORTED_FEATURE_TYPES/_resolve_feature_type, not a longer if/elif chain.
 _DISPATCH: dict[tuple[FeatureType, TargetType], _FeatureAnalyzer] = {
     (FeatureType.CATEGORICAL, TargetType.BINARY): analyze_categorical_feature,
     (FeatureType.CONTINUOUS, TargetType.BINARY): analyze_continuous_feature,
+    (FeatureType.ORDINAL, TargetType.BINARY): analyze_ordinal_feature,
 }
 
 # Feature types accepted in the *public* feature_types argument. A stricter
 # (and currently identical) set than _DISPATCH's keys would allow, kept
 # separate so "not a supported FeatureType value here" and "no analyzer for
 # this combination" can be reported as the distinct failures they are.
-_SUPPORTED_FEATURE_TYPES = (FeatureType.CATEGORICAL, FeatureType.CONTINUOUS)
+_SUPPORTED_FEATURE_TYPES = (
+    FeatureType.CATEGORICAL,
+    FeatureType.CONTINUOUS,
+    FeatureType.ORDINAL,
+)
 
 
 def _is_supported_categorical_dtype(series: pd.Series) -> bool:
@@ -72,13 +81,51 @@ def _is_supported_categorical_dtype(series: pd.Series) -> bool:
     )
 
 
+def _check_ordinal_dtype(name: str, series: pd.Series) -> None:
+    """Require an ordered pandas ``Categorical`` for a feature declared ORDINAL.
+
+    SignaPy never infers an order (not from the values, and never
+    alphabetically) — the order must be explicit:
+    ``pd.Categorical(df[name], categories=[...], ordered=True)``.
+
+    Raises two distinct, actionable errors rather than one generic one,
+    since they're different mistakes with different fixes:
+
+    Raises:
+        ValueError: If ``series`` isn't a pandas ``category`` dtype at all
+            (the column needs to be built as a ``Categorical`` first), or
+            if it is one but ``ordered=False`` (the order declaration is
+            missing, not the categorical-ness itself).
+    """
+    dtype = series.dtype
+    if not isinstance(dtype, pd.CategoricalDtype):
+        raise ValueError(
+            f"feature {name!r} has unsupported dtype {dtype}; ordinal "
+            "features must be an ordered pandas Categorical — construct it "
+            f"with e.g. df[{name!r}] = pd.Categorical(df[{name!r}], "
+            "categories=[...], ordered=True) before calling discover(). "
+            "signapy never infers a category order from the values, and "
+            "never assumes alphabetical order — see docs/architecture.md."
+        )
+    if not dtype.ordered:
+        raise ValueError(
+            f"feature {name!r} is an unordered categorical "
+            f"(pd.Categorical(..., ordered=False)); ordinal features need "
+            f"an explicit declared order — construct it with "
+            f"pd.Categorical(df[{name!r}], categories=[...], ordered=True) "
+            "rather than relying on signapy to infer one — see "
+            "docs/architecture.md."
+        )
+
+
 def _resolve_feature_type(name: str, declared: FeatureType | str) -> FeatureType:
     """Validate and normalize one ``feature_types`` entry.
 
     Raises:
         ValueError: If ``declared`` is not a valid :class:`FeatureType`
             value, or is a valid one that this discovery slice does not yet
-            support (anything other than ``CATEGORICAL``/``CONTINUOUS``).
+            support (anything other than
+            ``CATEGORICAL``/``CONTINUOUS``/``ORDINAL``).
     """
     if isinstance(declared, FeatureType):
         feature_type = declared
@@ -115,12 +162,19 @@ def discover(
     as a :class:`~signapy.results.DiscoveryReport`.
 
     - **Categorical** features get bias-corrected Cramér's V, a chi-square
-      test, and per-category support/target rate/baseline rate/lift
-      (``FeatureResult.values`` populated).
+      test, and per-category support/target rate/baseline rate/lift, in
+      order of first appearance (``FeatureResult.values`` populated).
     - **Continuous** features get a point-biserial correlation and its
       p-value, plus group counts and means in ``details``
       (``FeatureResult.values`` is always ``None`` — continuous
       localization is deferred, see ``docs/architecture.md``).
+    - **Ordinal** features get a Spearman rank correlation and its p-value,
+      plus the number of distinct levels in ``details``, and per-level
+      support/target rate/baseline rate/lift like categorical — but in the
+      feature's *declared* category order, not order of first appearance.
+      Ordinal features must be an ordered pandas ``Categorical``
+      (``pd.Categorical(..., ordered=True)``); SignaPy never infers an
+      order, from the values or alphabetically.
 
     This is SignaPy's discovery layer for binary targets only. ``df`` is
     never mutated.
@@ -138,17 +192,19 @@ def discover(
               ``df`` are ignored.
             - ``target`` must not be one of the keys.
             - Every key must be a column of ``df``.
-            - Only ``FeatureType.CATEGORICAL`` and ``FeatureType.CONTINUOUS``
-              are supported in this release.
+            - Only ``FeatureType.CATEGORICAL``, ``FeatureType.CONTINUOUS``,
+              and ``FeatureType.ORDINAL`` are supported in this release.
 
             When omitted (``None``, the default), every non-target column
             of ``df`` is analyzed as categorical — this preserves the
             behavior from before ``feature_types`` existed, including
             raising if a column's dtype isn't a supported categorical dtype.
-            Numeric columns are never silently treated as continuous:
-            declaring them via ``feature_types`` is required, because an
-            integer column might be a measured quantity, an ordinal level,
-            or a category identifier, and SignaPy does not guess which.
+            Numeric columns are never silently treated as continuous, and
+            categorical columns are never silently treated as ordinal:
+            declaring them via ``feature_types`` is required, because e.g.
+            an integer column might be a measured quantity, an ordinal
+            level, or a category identifier, and SignaPy does not guess
+            which.
 
     Returns:
         A :class:`~signapy.results.DiscoveryReport` with one
@@ -164,11 +220,13 @@ def discover(
             names a column not in ``df``; if a declared feature type is
             invalid or not yet supported (see :func:`_resolve_feature_type`);
             if a categorical column's dtype is unsupported (see
-            :func:`_is_supported_categorical_dtype`); or if a feature's own
-            data is invalid for its declared type once its missing values
-            are dropped (see
-            :func:`signapy.discovery.feature.analyze_categorical_feature`
-            and :func:`signapy.discovery.feature.analyze_continuous_feature`).
+            :func:`_is_supported_categorical_dtype`); if an ordinal column
+            isn't an ordered ``Categorical`` (see :func:`_check_ordinal_dtype`);
+            or if a feature's own data is invalid for its declared type once
+            its missing values are dropped (see
+            :func:`signapy.discovery.feature.analyze_categorical_feature`,
+            :func:`signapy.discovery.feature.analyze_continuous_feature`,
+            and :func:`signapy.discovery.feature.analyze_ordinal_feature`).
 
     Missing-data policy (see ``docs/architecture.md`` for the full
     rationale), the same for every feature type:
@@ -267,10 +325,13 @@ def discover(
                 f"feature {name!r} has unsupported dtype {series.dtype}; "
                 "signapy.discover only supports categorical columns "
                 '(object, pandas "string", or pandas "category" dtype) in '
-                "this release. Continuous features must be declared via "
-                "feature_types; ordinal, boolean, and integer-coded-category "
-                "features are not yet supported — see docs/architecture.md."
+                "this release. Continuous and ordinal features must be "
+                "declared via feature_types; boolean and integer-coded-"
+                "category features are not yet supported — see "
+                "docs/architecture.md."
             )
+        if feature_type is FeatureType.ORDINAL:
+            _check_ordinal_dtype(name, series)
 
         results.append(
             analyzer(
