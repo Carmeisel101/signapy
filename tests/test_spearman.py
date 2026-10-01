@@ -1,4 +1,5 @@
 import dataclasses
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -177,6 +178,23 @@ class TestSpearmanAcceptedInputTypes:
             categorical.codes, INCREASING_TARGET, positive_class="pos"
         )
         assert result.coefficient == pytest.approx(0.4898979485566356)
+
+    @pytest.mark.parametrize(
+        "feature",
+        [
+            [2**53, 2**53 + 1, 2**53 + 2],
+            [
+                Decimal("1.0000000000000000001"),
+                Decimal("1.0000000000000000002"),
+                Decimal("1.0000000000000000003"),
+            ],
+        ],
+    )
+    def test_preserves_distinct_high_precision_levels(self, feature):
+        result = spearman_rho(feature, [0, 0, 1], positive_class=1)
+
+        assert result.coefficient == pytest.approx(np.sqrt(3) / 2)
+        assert result.n_levels == 3
 
 
 class TestSpearmanInvalidInputs:
