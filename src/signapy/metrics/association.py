@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Hashable
 from dataclasses import dataclass
 from decimal import Decimal
-from numbers import Real
+from numbers import Rational, Real
 
 import numpy as np
 import numpy.typing as npt
@@ -189,6 +189,14 @@ def _validate_real_numeric_feature(array: np.ndarray, *, caller_name: str) -> No
             f"feature must be numeric; only real numeric values are accepted, "
             f"got dtype {array.dtype}"
         )
+
+
+def _is_finite_real(value: Real | Decimal) -> bool:
+    if isinstance(value, Decimal):
+        return value.is_finite()
+    if isinstance(value, Rational):
+        return True
+    return bool(np.isfinite(value))
 
 
 @dataclass(frozen=True)
@@ -528,16 +536,8 @@ def spearman_rho(
 
     _validate_real_numeric_feature(feature_array, caller_name="spearman_rho")
 
-    try:
-        feature_values = pd.to_numeric(
-            pd.Series(feature_array), errors="raise"
-        ).to_numpy(dtype=float)
-    except (ValueError, TypeError) as error:
-        raise ValueError(
-            f"feature must be numeric, got dtype {feature_array.dtype}: {error}"
-        ) from error
-
-    if not np.all(np.isfinite(feature_values)):
+    feature_values = feature_array
+    if not all(_is_finite_real(value) for value in feature_values):
         raise ValueError(
             "feature must not contain infinite values (inf or -inf); "
             "resolve or drop these rows before calling"
