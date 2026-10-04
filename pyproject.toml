@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "signapy"
 dynamic = ["version"]
-description = "Exploratory feature discovery for labeled datasets: find, quantify, localize, and validate predictive signal."
+description = "Mixed categorical, continuous, and ordinal feature discovery for labeled datasets."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

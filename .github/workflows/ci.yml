@@ -63,3 +63,9 @@ jobs:
           "$RUNNER_TEMP/wheel-test/bin/python" -m pip install dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-test/bin/python" -c "import signapy; print(signapy.__version__); assert callable(signapy.discover)"
+      - name: Smoke-test the source distribution in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/sdist-test"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/sdist-test/bin/python" -m pip install "$GITHUB_WORKSPACE"/dist/*.tar.gz
+          "$RUNNER_TEMP/sdist-test/bin/python" -c "import signapy; print(signapy.__version__); assert callable(signapy.discover)"
