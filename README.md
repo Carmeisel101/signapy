@@ -47,15 +47,10 @@ organic  -> lift 1.28
 paid     -> lift 0.73
 ```
 
-## Installation
+## Installation (development)
 
-SignaPy supports Python 3.10 to 3.14. Install the alpha release from PyPI:
-
-```bash
-pip install --pre signapy
-```
-
-For development, clone the repository and install its development dependencies:
+SignaPy supports Python 3.10 to 3.14. Clone the repository and install its
+development dependencies:
 
 ```bash
 git clone <repo-url> signapy

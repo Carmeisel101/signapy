@@ -677,6 +677,12 @@ stability evidence to results. Not in v0.1.
   `src/signapy/__init__.py`, which hatchling reads. Development builds use
   `.devN`, and releases will follow semantic versioning.
 - Dev tooling: `pytest` (warnings are errors) and `ruff` (lint and format).
-- CI (`.github/workflows/ci.yml`) runs lint, format check, import check, and
-  tests. PyPI publishing is intentionally not configured and will be a
-  separate task.
+- CI (`.github/workflows/ci.yml`) runs lint, format check, import check, tests,
+  and package validation. Package validation builds and checks both
+  distributions, then installs and imports the wheel and source distribution
+  independently in clean environments.
+- `.github/workflows/publish.yml` builds and checks distributions before
+  publishing through Trusted Publishing with OIDC and no stored API token. A
+  published GitHub Release targets the `pypi` environment; manual dispatch is
+  the optional rehearsal path and targets the `testpypi` environment and
+  repository.
