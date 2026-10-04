@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling>=1.21"]
+requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
 name = "signapy"
 dynamic = ["version"]
-description = "Exploratory feature discovery for labeled datasets: find, quantify, localize, and validate predictive signal."
+description = "Mixed categorical, continuous, and ordinal feature discovery for labeled datasets."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -18,7 +18,7 @@ dependencies = [
 ]
 keywords = ["feature discovery", "exploratory data analysis", "statistics", "data science"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -31,6 +31,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Carmeisel101/signapy"
+Repository = "https://github.com/Carmeisel101/signapy"
+Issues = "https://github.com/Carmeisel101/signapy/issues"
 
 [project.optional-dependencies]
 dev = [

@@ -4,7 +4,7 @@
 
 Long-term mission: *find, quantify, localize, and validate predictive signal.*
 
-> **Status: pre-alpha (`0.1.0.dev0`).** `signapy.discover()` works against
+> **Status: alpha (`0.1.0a1`).** `signapy.discover()` works against
 > **binary targets** with **categorical, continuous, and ordinal features**
 > today. Everything under [Planned next](#planned-next) — other
 > feature/target types, interactions, stability, and more — is not
@@ -49,7 +49,8 @@ paid     -> lift 0.73
 
 ## Installation (development)
 
-SignaPy supports Python 3.10 to 3.14. It isn't on PyPI yet.
+SignaPy supports Python 3.10 to 3.14. Clone the repository and install its
+development dependencies:
 
 ```bash
 git clone <repo-url> signapy
@@ -208,8 +209,8 @@ design.
 
 SignaPy uses [PEP 440](https://peps.python.org/pep-0440/) versions and will
 follow [semantic versioning](https://semver.org/) for releases. Pre-release
-development builds use `.devN` suffixes (currently `0.1.0.dev0`). The version
-is defined once, in `src/signapy/__init__.py`.
+development builds use `.devN` suffixes. The current alpha release is
+`0.1.0a1`. The version is defined once, in `src/signapy/__init__.py`.
 
 ## License
 
