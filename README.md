@@ -1,5 +1,9 @@
 # SignaPy
 
+[![PyPI version](https://img.shields.io/pypi/v/signapy.svg)](https://pypi.org/project/signapy/)
+[![Python versions](https://img.shields.io/pypi/pyversions/signapy.svg)](https://pypi.org/project/signapy/)
+[![License](https://img.shields.io/pypi/l/signapy.svg)](https://pypi.org/project/signapy/)
+
 **SignaPy is an exploratory feature-discovery library for labeled datasets.**
 
 Long-term mission: *find, quantify, localize, and validate predictive signal.*
@@ -47,17 +51,35 @@ organic  -> lift 1.28
 paid     -> lift 0.73
 ```
 
-## Installation (development)
+## Installation
 
-SignaPy supports Python 3.10 to 3.14. Clone the repository and install its
-development dependencies:
+SignaPy is available from PyPI and supports Python 3.10 through 3.14.
 
 ```bash
-git clone <repo-url> signapy
+pip install signapy
+```
+
+The current release is an alpha (`0.1.0a1`). To install the exact current
+version, which is useful when reproducibility is important:
+
+```bash
+pip install signapy==0.1.0a1
+```
+
+See the [SignaPy PyPI project page](https://pypi.org/project/signapy/) for
+available releases and package metadata.
+
+### Development installation
+
+These instructions are for contributors, or for anyone working from the
+source repository rather than the PyPI release:
+
+```bash
+git clone https://github.com/Carmeisel101/signapy.git
 cd signapy
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 pytest
 ```
 
