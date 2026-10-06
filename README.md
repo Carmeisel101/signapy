@@ -187,8 +187,7 @@ Dtype mapping to know about:
 | `Date`, `Datetime`, `Duration` | rejected as continuous/categorical (same as pandas) |
 
 An ordinal feature must be an `Enum` (an ordered declaration); a plain
-`Categorical` has no declared order and is rejected as ordinal. A
-`LazyFrame` must be `.collect()`ed first.
+`Categorical` has no declared order and is rejected as ordinal.
 
 `discover()` supports **categorical, continuous, and ordinal features
 against a binary target** (see [v0.1 scope](#v01-scope) below):

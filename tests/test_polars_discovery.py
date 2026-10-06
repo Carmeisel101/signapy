@@ -1,6 +1,10 @@
 """Polars DataFrame input to ``signapy.discover`` matches pandas input."""
 
+import os
+import subprocess
 import sys
+import textwrap
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -83,10 +87,60 @@ def test_does_not_mutate_input():
 
 
 def test_does_not_import_pyarrow():
-    signapy.discover(
-        _polars(_data()), target="is_made", positive_class=1, feature_types=_TYPES
+    code = textwrap.dedent(
+        """
+        import importlib.abc
+        import sys
+
+        import signapy
+        import polars as pl
+
+        class BlockPyArrow(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path, target=None):
+                if fullname == "pyarrow" or fullname.startswith("pyarrow."):
+                    raise ImportError("PyArrow import blocked by test")
+                return None
+
+        for name in tuple(sys.modules):
+            if name == "pyarrow" or name.startswith("pyarrow."):
+                del sys.modules[name]
+        sys.meta_path.insert(0, BlockPyArrow())
+
+        df = pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "t": [1, 0, 1, 0]})
+        signapy.discover(
+            df,
+            target="t",
+            positive_class=1,
+            feature_types={"a": "continuous"},
+        )
+        assert "pyarrow" not in sys.modules
+        """
     )
-    assert "pyarrow" not in sys.modules
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+    subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_nullable_integer_target_preserves_large_labels():
+    low = 2**53
+    high = low + 1
+    df = pl.DataFrame(
+        {
+            "a": ["x", "x", "y", "y", "x", "y", "x", "y", "ignored"],
+            "t": [low, high, low, high, low, high, low, high, None],
+        },
+        schema={"a": pl.String, "t": pl.Int64},
+    )
+    report = signapy.discover(df, target="t", positive_class=high)
+    assert report.feature("a").n == 8
+    assert {value.value for value in report.feature("a").values} == {"x", "y"}
 
 
 def test_default_analyzes_string_and_categorical_columns():
@@ -157,8 +211,6 @@ def test_missing_columns_report_original_columns():
         )
 
 
-def test_lazyframe_and_other_types_raise_type_error():
-    with pytest.raises(TypeError, match="collect"):
-        signapy.discover(pl.LazyFrame({"t": [1, 0]}), target="t", positive_class=1)
+def test_other_types_raise_type_error():
     with pytest.raises(TypeError, match="pandas or Polars"):
         signapy.discover({"t": [1, 0]}, target="t", positive_class=1)

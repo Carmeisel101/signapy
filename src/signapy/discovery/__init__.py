@@ -36,7 +36,6 @@ import pandas as pd
 
 from signapy.discovery._frame import (
     is_polars_dataframe,
-    is_polars_lazyframe,
     polars_to_pandas,
 )
 from signapy.discovery.feature import (
@@ -259,8 +258,6 @@ def discover(
        containing ``inf``/``-inf`` raises rather than having those rows
        silently dropped.
     """
-    if is_polars_lazyframe(df):
-        raise TypeError("df is a Polars LazyFrame; call .collect() first")
     if is_polars_dataframe(df):
         columns = list(df.columns)
         if target in columns:

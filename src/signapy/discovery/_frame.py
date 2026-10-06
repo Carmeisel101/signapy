@@ -11,8 +11,10 @@ Dtype mapping (Polars -> pandas), chosen so that each column lands on the
 same pandas dtype a user would get from the equivalent pandas workflow, and
 so SignaPy's existing dtype validation behaves identically:
 
-- integer / float: NumPy numeric array. Nulls (and NaNs) become ``NaN``, so
-  an integer column containing nulls becomes ``float64``.
+- integer: NumPy numeric array when complete, or the matching pandas nullable
+  integer dtype when nulls are present, preserving integer values exactly.
+  The 128-bit types, which pandas does not provide, use exact Python integers.
+- float: NumPy numeric array. Nulls and NaNs become ``NaN``.
 - ``String``: ``object`` dtype (``None`` for nulls).
 - ``Categorical``: unordered pandas ``category``.
 - ``Enum``: *ordered* pandas ``category`` in the Enum's declared order, so
@@ -38,11 +40,6 @@ def is_polars_dataframe(obj: object) -> bool:
     return cls.__name__ == "DataFrame" and cls.__module__.split(".")[0] == "polars"
 
 
-def is_polars_lazyframe(obj: object) -> bool:
-    cls = type(obj)
-    return cls.__name__ == "LazyFrame" and cls.__module__.split(".")[0] == "polars"
-
-
 def _convert_series(series: Any) -> pd.Series:
     import polars as pl
 
@@ -59,6 +56,10 @@ def _convert_series(series: Any) -> pd.Series:
             if series.null_count()
             else series.to_numpy()
         )
+    elif dtype.is_integer() and "128" in str(dtype):
+        values = pd.Series(series.to_list(), dtype=object)
+    elif dtype.is_integer() and series.null_count():
+        values = pd.array(series.to_list(), dtype=str(dtype))
     elif (dtype.is_numeric() and dtype != pl.Decimal) or (
         dtype.is_temporal() and dtype != pl.Time
     ):
