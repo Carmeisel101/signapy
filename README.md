@@ -84,7 +84,8 @@ pytest
 ```
 
 Runtime dependencies are `numpy`, `pandas`, and `scipy`. SignaPy doesn't
-depend on any ML framework.
+depend on any ML framework. Polars is optional (`pip install "signapy[polars]"`,
+or just install `polars` yourself) and PyArrow is never required.
 
 ## Usage
 
@@ -148,6 +149,46 @@ report.feature(
 Pandas converts any value omitted from `categories=[...]` to a missing value;
 under SignaPy's missing-data policy, that row is then excluded from this
 feature's analysis. Make sure the declaration includes every intended level.
+
+### Polars input
+
+`discover()` accepts a Polars `DataFrame` directly — no `.to_pandas()` (and so
+no PyArrow) needed. `target`, `positive_class`, and `feature_types` behave
+exactly as for pandas, and results match the equivalent pandas input. The
+frame is never mutated.
+
+```python
+import polars as pl
+
+attempts = attempts.with_columns(
+    pl.col("roof").cast(pl.Categorical),
+    pl.col("severity").cast(pl.Enum(["low", "medium", "high"])),
+)
+report = signapy.discover(
+    attempts,
+    target="is_made",
+    positive_class=1,
+    feature_types={
+        "kick_distance": "continuous",
+        "roof": "categorical",
+        "severity": "ordinal",
+    },
+)
+```
+
+Dtype mapping to know about:
+
+| Polars dtype | Treated as |
+| --- | --- |
+| integer, float | numeric (continuous when declared); null and `NaN` are both missing |
+| `String`, `Categorical` | categorical |
+| `Enum` | categorical, or ordinal in the Enum's declared order |
+| `Boolean` | not supported as a categorical or continuous feature (same as pandas `bool`); usable as a target |
+| `Date`, `Datetime`, `Duration` | rejected as continuous/categorical (same as pandas) |
+
+An ordinal feature must be an `Enum` (an ordered declaration); a plain
+`Categorical` has no declared order and is rejected as ordinal. A
+`LazyFrame` must be `.collect()`ed first.
 
 `discover()` supports **categorical, continuous, and ordinal features
 against a binary target** (see [v0.1 scope](#v01-scope) below):

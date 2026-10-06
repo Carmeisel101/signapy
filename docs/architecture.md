@@ -358,6 +358,15 @@ focused on implementation decisions.
 
 ### Settled decisions (discovery layer)
 
+- **Dataframe input.** `discover` accepts pandas and Polars DataFrames.
+  Polars input is adapted (`discovery/_frame.py`) by rebuilding only the
+  needed columns as pandas Series via `to_numpy()`/`to_list()`, so the
+  statistics layer and all dtype/missing-data validation are shared
+  verbatim and need no PyArrow. Polars is imported only when the caller
+  passes a Polars object. `Enum` maps to an ordered `Categorical`;
+  boolean columns with nulls map to nullable `boolean` (never `object`) so
+  they stay rejected exactly like pandas booleans.
+
 `signapy.discover(df, target, *, positive_class)` is a thin orchestration
 layer: DataFrame-level validation, missing-data policy, and dtype policy
 live here; the actual statistics stay in `metrics`.
