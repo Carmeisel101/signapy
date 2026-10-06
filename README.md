@@ -8,7 +8,7 @@
 
 Long-term mission: *find, quantify, localize, and validate predictive signal.*
 
-> **Status: alpha (`0.1.0a1`).** `signapy.discover()` works against
+> **Status: alpha (`0.1.0a2`).** `signapy.discover()` works against
 > **binary targets** with **categorical, continuous, and ordinal features**
 > today. Everything under [Planned next](#planned-next) — other
 > feature/target types, interactions, stability, and more — is not
@@ -59,11 +59,11 @@ SignaPy is available from PyPI and supports Python 3.10 through 3.14.
 pip install signapy
 ```
 
-The current release is an alpha (`0.1.0a1`). To install the exact current
+The current release is an alpha (`0.1.0a2`). To install the exact current
 version, which is useful when reproducibility is important:
 
 ```bash
-pip install signapy==0.1.0a1
+pip install signapy==0.1.0a2
 ```
 
 See the [SignaPy PyPI project page](https://pypi.org/project/signapy/) for
@@ -272,7 +272,7 @@ design.
 SignaPy uses [PEP 440](https://peps.python.org/pep-0440/) versions and will
 follow [semantic versioning](https://semver.org/) for releases. Pre-release
 development builds use `.devN` suffixes. The current alpha release is
-`0.1.0a1`. The version is defined once, in `src/signapy/__init__.py`.
+`0.1.0a2`. The version is defined once, in `src/signapy/__init__.py`.
 
 ## License
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0a2 — Polars input support
+
 - `signapy.discover` accepts a Polars `DataFrame` (optional `polars` extra; no
   PyArrow required). Results match equivalent pandas input.
 
