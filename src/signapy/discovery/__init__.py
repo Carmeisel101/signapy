@@ -30,9 +30,14 @@ additional ``(FeatureType, TargetType)`` combinations will be added.
 from __future__ import annotations
 
 from collections.abc import Callable, Hashable, Mapping
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from signapy.discovery._frame import (
+    is_polars_dataframe,
+    polars_to_pandas,
+)
 from signapy.discovery.feature import (
     analyze_categorical_feature,
     analyze_continuous_feature,
@@ -42,6 +47,9 @@ from signapy.profiling import FeatureType, TargetType
 from signapy.results import DiscoveryReport, FeatureResult
 
 __all__ = ["discover"]
+
+if TYPE_CHECKING:
+    import polars as pl
 
 _FeatureAnalyzer = Callable[..., FeatureResult]
 
@@ -149,7 +157,7 @@ def _resolve_feature_type(name: str, declared: FeatureType | str) -> FeatureType
 
 
 def discover(
-    df: pd.DataFrame,
+    df: pd.DataFrame | pl.DataFrame,
     target: str,
     *,
     positive_class: Hashable,
@@ -172,15 +180,20 @@ def discover(
       plus the number of distinct levels in ``details``, and per-level
       support/target rate/baseline rate/lift like categorical — but in the
       feature's *declared* category order, not order of first appearance.
-      Ordinal features must be an ordered pandas ``Categorical``
-      (``pd.Categorical(..., ordered=True)``); SignaPy never infers an
-      order, from the values or alphabetically.
+      Ordinal features must carry an explicit order: an ordered pandas
+      ``Categorical`` (``pd.Categorical(..., ordered=True)``) or a Polars
+      ``Enum``. SignaPy never infers an order, from the values or
+      alphabetically.
 
     This is SignaPy's discovery layer for binary targets only. ``df`` is
-    never mutated.
+    never mutated. Polars input gives the same results as the equivalent
+    pandas input; a Polars ``Enum`` column maps to an ordered ``Categorical``
+    (usable as ORDINAL), and Polars ``NaN`` is treated as missing like null.
 
     Args:
-        df: The labeled dataset.
+        df: The labeled dataset: a pandas or Polars ``DataFrame``. Polars
+            input is read without mutation and without requiring PyArrow;
+            see :mod:`signapy.discovery._frame` for the dtype mapping.
         target: Name of the binary target column in ``df``.
         positive_class: The target value treated as the positive class.
         feature_types: Optional mapping from column name to
@@ -213,6 +226,7 @@ def discover(
         features when ``feature_types`` is given).
 
     Raises:
+        TypeError: If ``df`` is neither a pandas nor Polars ``DataFrame``.
         ValueError: If ``target`` is not a column of ``df``; if ``df`` is
             empty; if ``target``'s non-missing values are not exactly two
             distinct classes; if ``positive_class`` is not one of them; if
@@ -246,10 +260,21 @@ def discover(
        containing ``inf``/``-inf`` raises rather than having those rows
        silently dropped.
     """
-    if target not in df.columns:
+    if is_polars_dataframe(df):
+        columns = list(df.columns)
+        if target in columns:
+            wanted = columns if feature_types is None else {target, *feature_types}
+            df = polars_to_pandas(df, wanted)
+    elif not isinstance(df, pd.DataFrame):
+        raise TypeError(
+            f"df must be a pandas or Polars DataFrame, got {type(df).__name__}"
+        )
+    else:
+        columns = list(df.columns)
+
+    if target not in columns:
         raise ValueError(
-            f"target column {target!r} not found in DataFrame columns: "
-            f"{list(df.columns)}"
+            f"target column {target!r} not found in DataFrame columns: {columns}"
         )
     if df.empty:
         raise ValueError("df must not be empty")
@@ -287,10 +312,10 @@ def discover(
                 f"feature_types must not include the target column {target!r}"
             )
         for name in feature_types:
-            if name not in df.columns:
+            if name not in columns:
                 raise ValueError(
                     f"feature_types names {name!r}, which is not a column "
-                    f"of df: {list(df.columns)}"
+                    f"of df: {columns}"
                 )
         resolved_types = {
             name: _resolve_feature_type(name, declared)

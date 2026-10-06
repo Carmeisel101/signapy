@@ -200,6 +200,7 @@ src/signapy/
 ├── discovery/         # user-facing workflows: type → method → results
 │   ├── __init__.py     # implemented: discover(df, target, *, positive_class,
 │   │                    #   feature_types=None), method dispatch table
+│   ├── _frame.py      # Polars-to-pandas adapter (no PyArrow dependency)
 │   ├── feature.py       # implemented: analyze_categorical_feature,
 │   │                    #   analyze_continuous_feature, analyze_ordinal_feature
 │   └── value.py          # implemented: build_value_results (categorical and
@@ -358,6 +359,15 @@ focused on implementation decisions.
 
 ### Settled decisions (discovery layer)
 
+- **Dataframe input.** `discover` accepts pandas and Polars DataFrames.
+  Polars input is adapted (`discovery/_frame.py`) by rebuilding only the
+  needed columns as pandas Series via `to_numpy()`/`to_list()`, so the
+  statistics layer and all dtype/missing-data validation are shared
+  verbatim and need no PyArrow. Polars is imported only when the caller
+  passes a Polars object. `Enum` maps to an ordered `Categorical`;
+  boolean columns with nulls map to nullable `boolean` (never `object`) so
+  they stay rejected exactly like pandas booleans.
+
 `signapy.discover(df, target, *, positive_class)` is a thin orchestration
 layer: DataFrame-level validation, missing-data policy, and dtype policy
 live here; the actual statistics stay in `metrics`.
@@ -405,8 +415,8 @@ live here; the actual statistics stay in `metrics`.
   preserved for `DiscoveryReport.features`, so which feature's error
   surfaces first follows `df`'s own column order.
 - **`df` is never mutated.** `discover()` only reads from `df` (boolean
-  masking and column selection, which return copies/views, not in-place
-  operations).
+  masking and column selection for pandas; rebuilding selected columns for
+  Polars), with no in-place operations.
 
 Tests must be deterministic and use small synthetic datasets whose expected
 statistics are known (hand-computed, or checked against `scipy.stats`).
@@ -433,7 +443,7 @@ and declared explicitly via a new `feature_types` argument, on branches
 
 ```python
 def discover(
-    df: pd.DataFrame,
+    df: pd.DataFrame | pl.DataFrame,
     target: str,
     *,
     positive_class: Hashable,

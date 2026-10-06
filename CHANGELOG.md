@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `signapy.discover` accepts a Polars `DataFrame` (optional `polars` extra; no
+  PyArrow required). Results match equivalent pandas input.
+
 ## 0.1.0a1 — first public alpha
 
 Initial release. The API is experimental and may change.
