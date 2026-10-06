@@ -180,9 +180,10 @@ def discover(
       plus the number of distinct levels in ``details``, and per-level
       support/target rate/baseline rate/lift like categorical — but in the
       feature's *declared* category order, not order of first appearance.
-      Ordinal features must be an ordered pandas ``Categorical``
-      (``pd.Categorical(..., ordered=True)``); SignaPy never infers an
-      order, from the values or alphabetically.
+      Ordinal features must carry an explicit order: an ordered pandas
+      ``Categorical`` (``pd.Categorical(..., ordered=True)``) or a Polars
+      ``Enum``. SignaPy never infers an order, from the values or
+      alphabetically.
 
     This is SignaPy's discovery layer for binary targets only. ``df`` is
     never mutated. Polars input gives the same results as the equivalent
@@ -225,6 +226,7 @@ def discover(
         features when ``feature_types`` is given).
 
     Raises:
+        TypeError: If ``df`` is neither a pandas nor Polars ``DataFrame``.
         ValueError: If ``target`` is not a column of ``df``; if ``df`` is
             empty; if ``target``'s non-missing values are not exactly two
             distinct classes; if ``positive_class`` is not one of them; if

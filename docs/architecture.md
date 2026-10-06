@@ -200,6 +200,7 @@ src/signapy/
 ├── discovery/         # user-facing workflows: type → method → results
 │   ├── __init__.py     # implemented: discover(df, target, *, positive_class,
 │   │                    #   feature_types=None), method dispatch table
+│   ├── _frame.py      # Polars-to-pandas adapter (no PyArrow dependency)
 │   ├── feature.py       # implemented: analyze_categorical_feature,
 │   │                    #   analyze_continuous_feature, analyze_ordinal_feature
 │   └── value.py          # implemented: build_value_results (categorical and
@@ -414,8 +415,8 @@ live here; the actual statistics stay in `metrics`.
   preserved for `DiscoveryReport.features`, so which feature's error
   surfaces first follows `df`'s own column order.
 - **`df` is never mutated.** `discover()` only reads from `df` (boolean
-  masking and column selection, which return copies/views, not in-place
-  operations).
+  masking and column selection for pandas; rebuilding selected columns for
+  Polars), with no in-place operations.
 
 Tests must be deterministic and use small synthetic datasets whose expected
 statistics are known (hand-computed, or checked against `scipy.stats`).
@@ -442,7 +443,7 @@ and declared explicitly via a new `feature_types` argument, on branches
 
 ```python
 def discover(
-    df: pd.DataFrame,
+    df: pd.DataFrame | pl.DataFrame,
     target: str,
     *,
     positive_class: Hashable,
