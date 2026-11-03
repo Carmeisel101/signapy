@@ -16,15 +16,30 @@ Design notes (see ``docs/architecture.md`` for the full rationale):
 
 from __future__ import annotations
 
+import html
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from signapy.profiling.types import FeatureType, TargetType
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
 
 
 def _check_count(name: str, value: int) -> None:
     if value < 0:
         raise ValueError(f"{name} must be non-negative, got {value}")
+
+
+def _plain(value: Any) -> Any:
+    """Convert numpy scalars to Python builtins so output is serializable."""
+    item = getattr(value, "item", None)
+    return item() if callable(item) else value
+
+
+def _fmt(value: float | None) -> str:
+    return "-" if value is None else f"{value:.4g}"
 
 
 def _check_probability(name: str, value: float) -> None:
@@ -146,3 +161,111 @@ class DiscoveryReport:
             if result.feature == name:
                 return result
         raise KeyError(name)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the report as plain, JSON-friendly Python data.
+
+        Enums become their string values and numpy scalars become Python
+        numbers. Value labels are kept as-is, so non-JSON-native labels
+        (e.g. timestamps) pass through unchanged.
+        """
+        return {
+            "target": self.target,
+            "features": [
+                {
+                    "feature": r.feature,
+                    "feature_type": r.feature_type.value,
+                    "target_type": r.target_type.value,
+                    "effect_size_method": r.effect_size_method,
+                    "effect_size": r.effect_size,
+                    "n": r.n,
+                    "missing_rate": r.missing_rate,
+                    "test_method": r.test_method,
+                    "p_value": r.p_value,
+                    "values": None
+                    if r.values is None
+                    else [
+                        {
+                            "value": _plain(v.value),
+                            "support": v.support,
+                            "target_count": v.target_count,
+                            "target_rate": v.target_rate,
+                            "baseline_rate": v.baseline_rate,
+                            "lift": v.lift,
+                        }
+                        for v in r.values
+                    ],
+                    "details": {k: _plain(d) for k, d in r.details.items()},
+                }
+                for r in self.features
+            ],
+        }
+
+    _HEADER = ("feature", "type", "method", "effect", "p", "n", "missing")
+
+    def _rows(self) -> list[tuple[str, ...]]:
+        return [
+            (
+                r.feature,
+                r.feature_type.value,
+                r.effect_size_method,
+                _fmt(r.effect_size),
+                _fmt(r.p_value),
+                str(r.n),
+                f"{r.missing_rate:.1%}",
+            )
+            for r in self.features
+        ]
+
+    def __str__(self) -> str:
+        rows = [self._HEADER, *self._rows()]
+        widths = [max(len(row[i]) for row in rows) for i in range(len(self._HEADER))]
+        title = (
+            f"DiscoveryReport(target={self.target!r}, {len(self.features)} features)"
+        )
+        lines = [title]
+        for row in rows:
+            lines.append(
+                "  ".join(c.ljust(w) for c, w in zip(row, widths, strict=True)).rstrip()
+            )
+        return "\n".join(lines)
+
+    def _repr_html_(self) -> str:
+        """HTML table for Jupyter and Databricks notebooks."""
+        head = "".join(f"<th>{html.escape(h)}</th>" for h in self._HEADER)
+        body = "".join(
+            "<tr>" + "".join(f"<td>{html.escape(c)}</td>" for c in row) + "</tr>"
+            for row in self._rows()
+        )
+        return (
+            f"<div><b>DiscoveryReport</b> &mdash; target: "
+            f"<code>{html.escape(self.target)}</code></div>"
+            f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+        )
+
+    def plot(self, ax: Axes | None = None) -> Axes:
+        """Plot each feature's absolute effect size as a horizontal bar chart.
+
+        Effect sizes come from different measures (Cramér's V, point-biserial,
+        Spearman), so bars are labelled with their method and are best read
+        within a method, not ranked across methods.
+
+        Requires matplotlib (``pip install signapy[plot]``).
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as error:
+            raise ImportError(
+                "DiscoveryReport.plot() requires matplotlib; "
+                "install it with `pip install signapy[plot]`"
+            ) from error
+        if ax is None:
+            _, ax = plt.subplots()
+        ordered = sorted(self.features, key=lambda r: abs(r.effect_size))
+        ax.barh(
+            [f"{r.feature} ({r.effect_size_method})" for r in ordered],
+            [abs(r.effect_size) for r in ordered],
+        )
+        ax.set_xlabel("|effect size|")
+        ax.set_title(f"Association with {self.target}")
+        return ax

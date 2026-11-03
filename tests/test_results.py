@@ -102,3 +102,37 @@ class TestDiscoveryReport:
     def test_rejects_target_as_feature(self):
         with pytest.raises(ValueError, match="target"):
             DiscoveryReport(target="channel", features=(make_feature(),))
+
+
+def _demo_report():
+    import pandas as pd
+
+    from signapy import discover
+
+    df = pd.DataFrame({"c": list("aabbab" * 5), "y": [1, 0, 1, 1, 0, 0] * 5})
+    return discover(df, "y", positive_class=1)
+
+
+def test_report_to_dict_is_json_serializable():
+    import json
+
+    data = _demo_report().to_dict()
+    json.dumps(data)
+    assert data["target"] == "y"
+    assert data["features"][0]["feature_type"] == "categorical"
+
+
+def test_report_str_and_html():
+    report = _demo_report()
+    assert "feature" in str(report) and "c" in str(report)
+    assert "<table>" in report._repr_html_()
+
+
+def test_report_plot():
+    import pytest
+
+    pytest.importorskip("matplotlib")
+    import matplotlib
+
+    matplotlib.use("Agg")
+    assert _demo_report().plot() is not None

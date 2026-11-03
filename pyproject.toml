@@ -39,8 +39,10 @@ Issues = "https://github.com/Carmeisel101/signapy/issues"
 
 [project.optional-dependencies]
 polars = ["polars>=1.0"]
+plot = ["matplotlib>=3.5"]
 dev = [
     "packaging>=23.0",
+    "matplotlib>=3.5",
     "polars>=1.0",
     "pytest>=8.0",
     "ruff>=0.6",
