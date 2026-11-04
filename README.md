@@ -119,7 +119,7 @@ report = signapy.discover(
 
 report.feature("continuous_measurement").effect_size  # point-biserial coefficient
 report.feature("continuous_measurement").p_value  # its p-value
-report.feature("continuous_measurement").values  # always None (see below)
+report.feature("continuous_measurement").values  # per-quantile-bin lift
 ```
 
 An **ordinal** feature needs an explicit order — SignaPy never infers one,
@@ -189,6 +189,83 @@ Dtype mapping to know about:
 An ordinal feature must be an `Enum` (an ordered declaration); a plain
 `Categorical` has no declared order and is rejected as ordinal.
 
+### Reading the report
+
+`discover()` returns a `DiscoveryReport` of numbers without drawing during
+the analysis. The same report has several explicit and notebook-native views:
+
+| You want | Use |
+| --- | --- |
+| Python access | `report.features`, `report.feature("name")`, `.values` |
+| Plain data for scripts, JSON, or agents | `report.to_dict()` |
+| A quick look in a terminal | `print(report)` |
+| The mosaic and a summary table in Jupyter or Databricks | `report` as the last line of a cell (table only without matplotlib) |
+| The mosaic (needs `pip install signapy[plot]`) | `report.plot()` |
+
+`print(report)` shows one summary row per feature; the per-value and per-bin
+lift lives in `to_dict()` and `.values`.
+
+### Reading the mosaic
+
+`report.plot()` draws SignaPy's signature view: one row per feature, one
+tile per value, so you see *where* in each feature the signal lives, not just
+how strong it is overall.
+
+- **Tile width** is the value's support, its share of that feature's rows.
+  A thin tile means little data behind it.
+- **Tile color** is the value's lift against the baseline target rate, on a
+  scale centered at 1 (white). Red is over-represented in the positive class,
+  blue is under-represented. The lift and support percentage are printed in
+  the tile when it is wide enough.
+- **Continuous features** appear as up to five quantile bins of roughly equal
+  size (heavy ties can make them unequal, so check each tile's width),
+  labelled like `(38.4, 44.1]`, read left to right: steadily rising lift is a
+  roughly linear relationship, a mid-range peak is non-monotonic.
+- **Label panel** (left): the feature name, its effect size (`V` for Cramér's
+  V, `ρ` for Spearman, `r` for point-biserial), and its `n`. Long names wrap
+  onto extra lines and the row grows; nothing is cut off. Spaces and control
+  characters that would make two names look alike are made visible (`␣`,
+  `\n`).
+- **Row order:** effect sizes from different measures are not strictly
+  comparable, so rows are grouped by measure (the group with the strongest
+  feature first) and sorted by absolute effect size within each group. Read
+  rankings within a group, not across groups.
+- **Long value labels** are cut to 20 characters with an ellipsis, and tiles
+  too narrow for text are left unlabeled. The full labels are always in
+  `report.to_dict()`.
+- **Large reports:** `report.plot(max_features=N)` draws only the `N` features
+  with the largest absolute effect size and says so in the figure. The
+  notebook view does this automatically for the top 30.
+
+The baseline in the header badge is a range when features have different
+missing rows, because each feature's baseline uses only its own valid rows.
+
+### Using SignaPy from an agent
+
+Nothing in SignaPy runs `to_dict()` for you, so an agent has to ask for it.
+The reliable pattern is to run `discover()` and serialize the whole report:
+
+```python
+import json
+import signapy
+
+report = signapy.discover(df, target="converted", positive_class=True)
+print(json.dumps(report.to_dict(), indent=2))
+```
+
+`to_dict()` returns plain, JSON-safe data: for each feature the
+`feature_type`, `effect_size_method` and `effect_size`, `p_value`, `n`,
+`missing_rate`, `details`, and `values` (per-category, per-level, or
+per-quantile-bin `support`, `target_rate`, `baseline_rate`, and `lift`; `None`
+when a feature has no value-level results). Category labels are always
+encoded to JSON-safe data: timestamps and dates become ISO-8601 strings,
+timedeltas ISO-8601 durations, tuples lists, and other objects (`Decimal`,
+`UUID`, ...) their `str()`. Read effect sizes within their
+method (`cramers_v`, `point_biserial`, `spearman_rho`), since they aren't
+strictly comparable across methods, and treat everything as exploratory
+association, not causation. See [`docs/metrics.md`](docs/metrics.md) for
+interpretation.
+
 `discover()` supports **categorical, continuous, and ordinal features
 against a binary target** (see [v0.1 scope](#v01-scope) below):
 
@@ -207,10 +284,11 @@ against a binary target** (see [v0.1 scope](#v01-scope) below):
 - Categorical features get Cramér's V, a chi-square test, and per-category
   `values` (support, target rate, baseline rate, lift), in order of first
   appearance. Continuous features get a point-biserial correlation, its
-  p-value, and group counts/means in `details` — but **`values` is always
-  `None`** for continuous features: localizing *where within a continuous
-  range* the signal lives needs binning, which SignaPy doesn't do
-  automatically (see [`docs/architecture.md`](docs/architecture.md)).
+  p-value, group counts/means in `details`, and `values` over up to five
+  quantile bins of roughly equal size (labelled like `(38.4, 44.1]`), showing *where
+  within the range* the signal lives; `values` is `None` only when the
+  feature has too few rows or distinct values to bin (see
+  [`docs/architecture.md`](docs/architecture.md)).
   Ordinal features get a Spearman rank correlation, its p-value, and the
   same per-level `values` as categorical — but in the feature's *declared*
   category order, not order of first appearance.
@@ -244,7 +322,8 @@ Implemented so far:
 - **Categorical features:** Cramér's V (effect size), chi-square test
   (p-value), and per-category support/target rate/baseline rate/lift
 - **Continuous features:** point-biserial correlation (effect size and
-  p-value) and group counts/means; no value-level localization yet
+  p-value), group counts/means, and per-bin support/target rate/baseline
+  rate/lift over up to five quantile bins
 - **Ordinal features:** Spearman rank correlation (effect size and
   p-value), and per-level support/target rate/baseline rate/lift in
   declared category order; requires an explicit ordered `Categorical`
@@ -259,8 +338,7 @@ including the missing-data and dtype policies this slice follows.
 
 Not yet implemented: boolean features, semantic type overrides (e.g.
 integer-coded categories), multiclass or continuous targets,
-continuous-feature value-level localization (binning — unlike ordinal,
-which got this via its declared levels), additional value-level metrics
+configurable continuous binning (bin count and strategy), additional value-level metrics
 (risk difference, odds ratio, confidence intervals), interaction discovery,
 and stability analysis. See the
 [discovery hierarchy](#discovery-hierarchy) above and

@@ -14,7 +14,7 @@ from collections.abc import Hashable
 
 import pandas as pd
 
-from signapy.discovery.value import build_value_results
+from signapy.discovery.value import build_binned_value_results, build_value_results
 from signapy.metrics.association import cramers_v, point_biserial, spearman_rho
 from signapy.metrics.significance import chi_square
 from signapy.profiling import FeatureType, TargetType
@@ -131,10 +131,12 @@ def analyze_continuous_feature(
     are excluded from this feature's analysis only. ``target`` must already
     be restricted to rows with a non-missing target value.
 
-    Unlike the categorical case, this produces no value-level
-    ``ValueResult``s — continuous localization (binning) is deferred to a
-    future feature (see ``docs/architecture.md``) — so
-    ``FeatureResult.values`` is always ``None`` here.
+    Value-level evidence comes from quantile binning
+    (:func:`~signapy.discovery.value.build_binned_value_results`): up to five
+    quantile bins of roughly equal size (ties can make them unequal), each
+    described by support, target rate, baseline rate, and lift.
+    ``FeatureResult.values`` is ``None`` only when the feature cannot be split
+    into at least two bins (too few rows or distinct values).
 
     Args:
         name: Column name, used as ``FeatureResult.feature`` and in error
@@ -149,9 +151,10 @@ def analyze_continuous_feature(
     Returns:
         A :class:`~signapy.results.FeatureResult` with the point-biserial
         coefficient (``effect_size_method="point_biserial"``) and its
-        p-value (``test_method="point_biserial"``), and group counts/means
+        p-value (``test_method="point_biserial"``), group counts/means
         in ``details`` (``positive_n``, ``negative_n``, ``positive_mean``,
-        ``negative_mean``, ``mean_difference``).
+        ``negative_mean``, ``mean_difference``), and per-bin
+        :class:`~signapy.results.ValueResult` objects in ascending order.
 
     Raises:
         ValueError: Anything :func:`~signapy.metrics.association.point_biserial`
@@ -190,7 +193,9 @@ def analyze_continuous_feature(
         missing_rate=missing_rate,
         test_method="point_biserial",
         p_value=result.p_value,
-        values=None,
+        values=build_binned_value_results(
+            feature_valid, target_valid, positive_class=positive_class
+        ),
         details={
             "positive_n": result.positive_n,
             "negative_n": result.negative_n,

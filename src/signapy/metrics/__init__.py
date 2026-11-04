@@ -14,8 +14,8 @@ Modules:
 - ``significance``: hypothesis testing
   (:func:`~signapy.metrics.significance.chi_square`)
 - ``lift``: value-level localization for categorical and ordinal features
-  (:func:`~signapy.metrics.lift.categorical_lift`); no continuous equivalent
-  yet (see ``docs/architecture.md``)
+  (:func:`~signapy.metrics.lift.categorical_lift`); continuous features are
+  binned by ``discovery`` first (see ``docs/architecture.md``)
 
 Each module validates its own inputs independently and raises ``ValueError``
 on invalid or degenerate input (e.g. empty data, a single category, a zero

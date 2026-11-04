@@ -43,7 +43,7 @@ TensorFlow) to do statistical feature discovery.
 | --- | --- |
 | **Feature** | A candidate input column being evaluated. |
 | **Target** | The labeled outcome column. |
-| **Value** | A distinct level of a (categorical/boolean/ordinal) feature. Continuous features may later be localized via bins/ranges. |
+| **Value** | A distinct level of a (categorical/boolean/ordinal) feature. Continuous features are localized via quantile bins. |
 | **Signal** | A non-trivial statistical relationship between a feature (or value) and the target. |
 | **Evidence** | Numbers supporting or weakening a claim of signal: effect size, uncertainty, support, prevalence, localization, stability. |
 | **Feature type** | Semantic type of a feature: `continuous`, `ordinal`, `categorical`, `boolean`. |
@@ -133,20 +133,22 @@ SignaPy returns structured, immutable results (`signapy.results.models`):
     (`effect_size_method="cramers_v"`, `test_method="chi_square"`) because
     they are different kinds of evidence and are not always paired.
   - Method-specific numbers (chi-square statistic, degrees of freedom, …) go
-    in `details: Mapping[str, float]` so the generic schema doesn't grow with
+    in `details: Mapping[str, float | int]` so the generic schema doesn't grow with
     each method. If a detail becomes universal, promote it to a field.
   - `values` holds value-level results. `None` means "value-level discovery
-    not performed" (e.g. a continuous feature). It is not an empty tuple.
-- **`ValueResult`**: value-level evidence for one categorical value or
-  ordinal level against a binary target: `value`, `support`, `target_count`,
-  `target_rate`, `baseline_rate`, `lift`. It is intentionally scoped to
-  binary targets for v0.1. Multiclass or regression targets will need
-  different value-level fields (per-class rates, target means). Add those as
-  separate models rather than making this one generic.
-- **`DiscoveryReport`**: a thin container: `target`, `features`, and
-  `feature(name)` lookup. Keep it thin. Presentation such as tables,
-  `to_frame()`, and ranking views belongs in methods or helpers added only
-  when needed.
+    not performed" (e.g. a continuous feature with too few rows or distinct
+    values to bin). It is not an empty tuple.
+- **`ValueResult`**: value-level evidence for one categorical value, ordinal
+  level, or continuous quantile bin against a binary target: `value`,
+  `support`, `target_count`, `target_rate`, `baseline_rate`, `lift`. It is
+  intentionally scoped to binary targets for v0.1. Multiclass or regression
+  targets will need different value-level fields (per-class rates, target
+  means). Add those as separate models rather than making this one generic.
+- **`DiscoveryReport`**: a result container with `target`, `features`, and
+  `feature(name)` lookup. It exposes the same evidence as JSON-safe plain data
+  (`to_dict()`), a compact terminal table, a notebook HTML view, and the
+  optional matplotlib mosaic (`plot()`). Presentation helpers belong on the
+  report or in `results`, while statistical computation stays outside it.
 
 Models are frozen dataclasses. Constructors validate structural invariants:
 counts are non-negative, `target_count <= support`, probabilities are in
@@ -195,8 +197,8 @@ src/signapy/
 │   │                    #   spearman_rho (Phi for boolean features planned)
 │   ├── significance.py # implemented: chi_square, ChiSquareResult
 │   └── lift.py          # implemented: categorical_lift, CategoricalValueMetrics
-│                        #   (reused for ordinal, reordered; no continuous
-│                        #   equivalent yet, see §10a)
+│                        #   (reused for ordinal, reordered, and for
+│                        #   continuous quantile bins, see §10a)
 ├── discovery/         # user-facing workflows: type → method → results
 │   ├── __init__.py     # implemented: discover(df, target, *, positive_class,
 │   │                    #   feature_types=None), method dispatch table
@@ -204,9 +206,11 @@ src/signapy/
 │   ├── feature.py       # implemented: analyze_categorical_feature,
 │   │                    #   analyze_continuous_feature, analyze_ordinal_feature
 │   └── value.py          # implemented: build_value_results (categorical and
-│                        #   ordinal; discovery/feature.py reorders for ordinal)
+│                        #   ordinal; discovery/feature.py reorders for ordinal),
+│                        #   build_binned_value_results (continuous quantile bins)
 └── results/
-    └── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
+    ├── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
+    └── _plot.py       # optional matplotlib signature mosaic
 ```
 
 Dependency direction: `discovery` → `metrics`, `profiling`, `results`;
@@ -428,9 +432,9 @@ categorical feature → binary target        continuous feature → binary targe
         ↓                                          ↓
 Cramér's V + chi-square                     point-biserial correlation
         ↓                                          ↓
-categorical_lift (support, rate,            group counts, means, and
-baseline rate, lift)                        mean difference — no
-                                             value-level localization yet
+categorical_lift (support, rate,            group counts, means, mean
+baseline rate, lift)                        difference, then quantile bins +
+                                             categorical_lift per bin
 ```
 
 Extends `signapy.discover()` to also handle continuous features, selected
@@ -502,19 +506,24 @@ def discover(
   `analyze_continuous_feature` re-raises with the feature name added, the
   same wrapping pattern `analyze_categorical_feature` already uses around
   `cramers_v`/`chi_square`.
-- **Why continuous localization (binning) was deferred.** Categorical
+- **Continuous localization uses quantile bins.** Categorical
   `categorical_lift` works because "which value" is already a discrete,
-  finite question. For a continuous feature, "which range of values" isn't
-  answerable without first choosing bin boundaries — equal-width, quantile,
-  or domain-specific — and that choice is a modeling decision this project
-  is not making on a user's behalf in this iteration (consistent with
-  SignaPy's non-goals: it surfaces evidence, it doesn't make modeling
-  choices for you). `FeatureResult.values` is therefore always `None` for
-  a continuous feature, never an empty tuple (preserving the existing
-  `values=None` meaning "not performed," from the results model's original
-  design in §7) and never something invented to fill the gap. A future
-  feature can add `values` for continuous features once binning is
-  designed, without changing `FeatureResult`'s shape.
+  finite question; a continuous feature needs bin boundaries first. This
+  was originally deferred because the choice (equal-width, quantile,
+  domain-specific) is a modeling decision. It is now made once, in
+  `discovery.value.build_binned_value_results`, with the least
+  assumption-laden option: up to five **quantile bins**, which hold roughly
+  equal numbers of rows when the data has few ties, so bins carry comparable
+  evidence and outliers can't stretch the edges. With many tied values the
+  bins can be markedly unequal (`[0]*60 + [1]*20 + [2]*20` gives bins of 60,
+  20 and 20 rows), which is why each bin reports its own `support`. Fewer bins are used when there are fewer than ten rows per two bins
+  or when ties collapse edges (`duplicates="drop"`). Labels are interval
+  strings (first bin closed, `"[10, 20]"`; the rest `"(20, 30]"`), widened in
+  precision until distinct. Each bin then flows through `categorical_lift`
+  like any value, in ascending order. `FeatureResult.values` is `None` for a
+  continuous feature only when it cannot be split into at least two bins
+  (too few rows, or too few distinct values) — "not performed", never an
+  empty tuple. Bin count and strategy are not yet user-configurable.
 - **`FeatureResult.details` typing widened** from `Mapping[str, float]` to
   `Mapping[str, float | int]`: continuous `details` legitimately mixes
   integer group counts (`positive_n`, `negative_n`) with floating-point
@@ -536,15 +545,16 @@ def discover(
 ### Out of scope (this slice)
 
 Confirmed non-goals, unchanged from the spec: classifier training,
-multivariate/interaction analysis, automatic feature selection, automatic
-continuous binning, per-bin lift, confidence intervals, multiple-testing
+multivariate/interaction analysis, automatic feature selection, confidence intervals, multiple-testing
 correction, cluster-aware tests, multiclass or continuous targets, and
 stability analysis. See §12 and the "Statistical limitations" section of
 `docs/metrics.md` for the general caveats (causation, sample-size
 sensitivity, clustering, no out-of-sample validation, missing-data
 population shift, multiple comparisons) that apply across every metric in
 this project, not just the new one. (Ordinal discovery, listed as out of
-scope here originally, was implemented next — see §10b.)
+scope here originally, was implemented next — see §10b. Continuous binning
+and per-bin lift, also listed here originally, were implemented later — see
+"Continuous localization uses quantile bins" above.)
 
 ## 10b. Third vertical slice: ordinal discovery (implemented)
 

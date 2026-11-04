@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `DiscoveryReport` gains `to_dict()`, a terminal `str()` table, a notebook
+  HTML repr, and `plot()`.
+- `plot()` renders SignaPy's signature mosaic (tile width = support, colour =
+  lift) and returns a matplotlib `Figure`. Requires the optional `plot` extra.
+- In Jupyter and Databricks, evaluating a report now shows the mosaic (inline
+  PNG) above the summary table; without matplotlib it shows the table alone.
+- `print(report)` ends with a pointer to `to_dict()`, and the README has new
+  "Reading the report" and "Using SignaPy from an agent" sections.
+- Mosaic conventions: rows are grouped by effect-size measure (V, ρ, r) and
+  sorted by absolute effect size within each group; value labels are cut to
+  20 characters; long feature names wrap onto extra lines and the row grows;
+  `plot(max_features=N)` draws only the strongest `N` features, and the
+  notebook view caps at 30. See the README's "Reading the mosaic".
+- Continuous features now get value-level evidence: `discover()` cuts each into
+  up to five quantile bins of roughly equal size (ties in the data can make
+  them unequal, and rows or distinct values that are scarce mean fewer bins) and reports support, target rate, baseline rate, and lift per bin,
+  labelled as intervals like `(38.4, 44.1]`. `FeatureResult.values` is `None`
+  only when a feature can't be split into at least two bins.
+
 ## 0.1.0a2 — Polars input support
 
 - `signapy.discover` accepts a Polars `DataFrame` (optional `polars` extra; no
