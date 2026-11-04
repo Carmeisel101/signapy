@@ -133,10 +133,11 @@ SignaPy returns structured, immutable results (`signapy.results.models`):
     (`effect_size_method="cramers_v"`, `test_method="chi_square"`) because
     they are different kinds of evidence and are not always paired.
   - Method-specific numbers (chi-square statistic, degrees of freedom, …) go
-    in `details: Mapping[str, float]` so the generic schema doesn't grow with
+    in `details: Mapping[str, float | int]` so the generic schema doesn't grow with
     each method. If a detail becomes universal, promote it to a field.
   - `values` holds value-level results. `None` means "value-level discovery
-    not performed" (e.g. a continuous feature). It is not an empty tuple.
+    not performed" (e.g. a continuous feature with too few rows or distinct
+    values to bin). It is not an empty tuple.
 - **`ValueResult`**: value-level evidence for one categorical value or
   ordinal level against a binary target: `value`, `support`, `target_count`,
   `target_rate`, `baseline_rate`, `lift`. It is intentionally scoped to
@@ -195,8 +196,8 @@ src/signapy/
 │   │                    #   spearman_rho (Phi for boolean features planned)
 │   ├── significance.py # implemented: chi_square, ChiSquareResult
 │   └── lift.py          # implemented: categorical_lift, CategoricalValueMetrics
-│                        #   (reused for ordinal, reordered; no continuous
-│                        #   equivalent yet, see §10a)
+│                        #   (reused for ordinal, reordered, and for
+│                        #   continuous quantile bins, see §10a)
 ├── discovery/         # user-facing workflows: type → method → results
 │   ├── __init__.py     # implemented: discover(df, target, *, positive_class,
 │   │                    #   feature_types=None), method dispatch table
@@ -204,7 +205,8 @@ src/signapy/
 │   ├── feature.py       # implemented: analyze_categorical_feature,
 │   │                    #   analyze_continuous_feature, analyze_ordinal_feature
 │   └── value.py          # implemented: build_value_results (categorical and
-│                        #   ordinal; discovery/feature.py reorders for ordinal)
+│                        #   ordinal; discovery/feature.py reorders for ordinal),
+│                        #   build_binned_value_results (continuous quantile bins)
 └── results/
     └── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
 ```
@@ -428,9 +430,9 @@ categorical feature → binary target        continuous feature → binary targe
         ↓                                          ↓
 Cramér's V + chi-square                     point-biserial correlation
         ↓                                          ↓
-categorical_lift (support, rate,            group counts, means, and
-baseline rate, lift)                        mean difference — no
-                                             value-level localization yet
+categorical_lift (support, rate,            group counts, means, mean
+baseline rate, lift)                        difference, then quantile bins +
+                                             categorical_lift per bin
 ```
 
 Extends `signapy.discover()` to also handle continuous features, selected

@@ -30,7 +30,7 @@ the metric that applies depends on the feature's declared type:
 | Feature-level | Ordinal | `spearman_rho` | Do higher feature levels go with the positive or negative class, and how strongly? |
 | Value-level | Categorical | `categorical_lift` | Which individual categories are above or below baseline? |
 | Value-level | Ordinal | `categorical_lift` (reordered) | Which individual *levels* are above or below baseline, read in order? |
-| Value-level | Continuous | *(not yet implemented)* | Which *ranges* of values are above or below baseline? |
+| Value-level | Continuous | `categorical_lift` over quantile bins | Which *ranges* of values are above or below baseline? |
 
 Feature-level metrics summarize a feature *as a whole* against a target.
 Value-level metrics break that summary down by category or level (or,

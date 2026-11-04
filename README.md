@@ -119,7 +119,7 @@ report = signapy.discover(
 
 report.feature("continuous_measurement").effect_size  # point-biserial coefficient
 report.feature("continuous_measurement").p_value  # its p-value
-report.feature("continuous_measurement").values  # always None (see below)
+report.feature("continuous_measurement").values  # per-quantile-bin lift
 ```
 
 An **ordinal** feature needs an explicit order — SignaPy never infers one,
@@ -222,7 +222,10 @@ print(json.dumps(report.to_dict(), indent=2))
 `feature_type`, `effect_size_method` and `effect_size`, `p_value`, `n`,
 `missing_rate`, `details`, and `values` (per-category, per-level, or
 per-quantile-bin `support`, `target_rate`, `baseline_rate`, and `lift`; `None`
-when a feature has no value-level results). Read effect sizes within their
+when a feature has no value-level results). Category labels are always
+encoded to JSON-safe data: timestamps and dates become ISO-8601 strings,
+timedeltas ISO-8601 durations, tuples lists, and other objects (`Decimal`,
+`UUID`, ...) their `str()`. Read effect sizes within their
 method (`cramers_v`, `point_biserial`, `spearman_rho`), since they aren't
 strictly comparable across methods, and treat everything as exploratory
 association, not causation. See [`docs/metrics.md`](docs/metrics.md) for

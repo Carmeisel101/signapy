@@ -1,5 +1,12 @@
 import dataclasses
+import datetime
+import decimal
+import enum
+import json
+import uuid
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from signapy.profiling import FeatureType, TargetType
@@ -105,8 +112,6 @@ class TestDiscoveryReport:
 
 
 def _demo_report():
-    import pandas as pd
-
     from signapy import discover
 
     df = pd.DataFrame({"c": list("aabbab" * 5), "y": [1, 0, 1, 1, 0, 0] * 5})
@@ -114,8 +119,6 @@ def _demo_report():
 
 
 def test_report_to_dict_is_json_serializable():
-    import json
-
     data = _demo_report().to_dict()
     json.dumps(data)
     assert data["target"] == "y"
@@ -183,3 +186,58 @@ def test_report_plot_handles_featureless_rows_and_empty_report():
     assert any("no value-level breakdown" in t for t in texts)
     with pytest.raises(ValueError, match="no features"):
         DiscoveryReport("y").plot()
+
+
+class _Color(enum.Enum):
+    RED = "red"
+
+
+class _ArgItem:
+    """Hashable label whose unrelated ``item`` method needs an argument."""
+
+    def item(self, key):
+        return key
+
+    def __str__(self):
+        return "arg-item"
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("plain", "plain"),
+        (3, 3),
+        (2.5, 2.5),
+        (True, True),
+        (np.int64(7), 7),
+        (np.bool_(True), True),
+        (np.float32(0.5), 0.5),
+        (pd.Timestamp("2024-01-02 03:04:05"), "2024-01-02T03:04:05"),
+        (datetime.date(2024, 1, 2), "2024-01-02"),
+        (
+            np.datetime64("2024-01-02T03:04:05.123456789", "ns"),
+            "2024-01-02T03:04:05.123456789",
+        ),
+        (np.datetime64("2024-01-02", "D"), "2024-01-02T00:00:00"),
+        (pd.Timedelta(hours=1, minutes=30), "P0DT1H30M0S"),
+        (np.timedelta64(90, "s"), "P0DT0H1M30S"),
+        (decimal.Decimal("1.50"), "1.50"),
+        (uuid.UUID(int=1), "00000000-0000-0000-0000-000000000001"),
+        ((1, np.int64(2)), [1, 2]),
+        (_Color.RED, "red"),
+        (_ArgItem(), "arg-item"),
+    ],
+)
+def test_to_dict_encodes_category_labels_as_json(label, expected):
+    feature = make_feature(values=(make_value(value=label),))
+    data = DiscoveryReport("y", (feature,)).to_dict()
+    encoded = data["features"][0]["values"][0]["value"]
+    assert encoded == expected
+    assert json.loads(json.dumps(data))["features"][0]["values"][0]["value"] == expected
+
+
+@pytest.mark.parametrize("dtype", ["longdouble", "clongdouble"])
+def test_to_dict_handles_extended_precision_numpy_scalars(dtype):
+    label = getattr(np, dtype)(1.5)
+    feature = make_feature(values=(make_value(value=label),))
+    json.dumps(DiscoveryReport("y", (feature,)).to_dict())

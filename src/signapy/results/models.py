@@ -17,11 +17,16 @@ Design notes (see ``docs/architecture.md`` for the full rationale):
 from __future__ import annotations
 
 import base64
+import datetime
+import enum
 import html
 import io
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
+import pandas as pd
 
 from signapy.profiling.types import FeatureType, TargetType
 
@@ -35,9 +40,48 @@ def _check_count(name: str, value: int) -> None:
 
 
 def _plain(value: Any) -> Any:
-    """Convert numpy scalars to Python builtins so output is serializable."""
-    item = getattr(value, "item", None)
-    return item() if callable(item) else value
+    """Encode a category label as plain, JSON-safe data.
+
+    The rule is deliberately closed and type-based, so no label can reach
+    ``json.dumps`` unencoded and no arbitrary method is ever called on it:
+
+    - ``None``, ``bool``, ``int``, ``float``, ``str`` pass through (numpy
+      and ``str``/``int`` subclasses are normalised to the builtin);
+    - enums become their (encoded) ``value``;
+    - dates, times, datetimes, ``pd.Timestamp`` and ``np.datetime64`` become
+      ISO-8601 strings, keeping sub-second and nanosecond precision;
+    - timedeltas (``datetime``, ``pd.Timedelta``, ``np.timedelta64``) become
+      ISO-8601 durations;
+    - other numpy scalars become the matching builtin (``np.longdouble``
+      becomes ``float``);
+    - tuples and lists become lists of encoded items;
+    - anything else (``Decimal``, ``UUID``, ...) becomes ``str(value)``.
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, enum.Enum):
+        return _plain(value.value)
+    if isinstance(value, str):
+        return str(value)
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, np.datetime64):
+        return pd.Timestamp(value).isoformat()
+    if isinstance(value, datetime.timedelta | np.timedelta64):
+        return pd.Timedelta(value).isoformat()
+    if isinstance(value, np.bool_):
+        return bool(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, tuple | list):
+        return [_plain(item) for item in value]
+    return str(value)
 
 
 def _fmt(value: float | None) -> str:
@@ -168,8 +212,10 @@ class DiscoveryReport:
         """Return the report as plain, JSON-friendly Python data.
 
         Enums become their string values and numpy scalars become Python
-        numbers. Value labels are kept as-is, so non-JSON-native labels
-        (e.g. timestamps) pass through unchanged.
+        numbers. Category labels are always encoded to JSON-safe data:
+        timestamps and dates become ISO-8601 strings, timedeltas ISO-8601
+        durations, tuples lists, and other objects (``Decimal``, ``UUID``,
+        ...) their ``str()``. See ``_plain`` for the full rule.
         """
         return {
             "target": self.target,
