@@ -1,10 +1,11 @@
 """The mosaic: SignaPy's signature visual for a :class:`DiscoveryReport`.
 
-One row per feature, ordered by strength of association. Within a row, one
-rounded tile per value: tile *width* is the value's support (its share of the
-feature's rows) and tile *colour* is its lift against the baseline target
-rate. A feature's signal therefore reads at a glance as saturated tiles, and
-thin, saturated tiles flag strong lift resting on little data.
+One row per feature, grouped by effect-size measure and ordered by strength
+within each group. Within a row, one rounded tile per value: tile *width* is
+the value's support (its share of the feature's rows) and tile *colour* is its
+lift against the baseline target rate. A feature's signal therefore reads at
+a glance as saturated tiles, and thin, saturated tiles flag strong lift
+resting on little data.
 
 Drawing happens in a coordinate system where one data unit is one inch, so
 rounded corners stay round regardless of how the figure is scaled.

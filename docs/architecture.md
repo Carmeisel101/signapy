@@ -138,16 +138,17 @@ SignaPy returns structured, immutable results (`signapy.results.models`):
   - `values` holds value-level results. `None` means "value-level discovery
     not performed" (e.g. a continuous feature with too few rows or distinct
     values to bin). It is not an empty tuple.
-- **`ValueResult`**: value-level evidence for one categorical value or
-  ordinal level against a binary target: `value`, `support`, `target_count`,
-  `target_rate`, `baseline_rate`, `lift`. It is intentionally scoped to
-  binary targets for v0.1. Multiclass or regression targets will need
-  different value-level fields (per-class rates, target means). Add those as
-  separate models rather than making this one generic.
-- **`DiscoveryReport`**: a thin container: `target`, `features`, and
-  `feature(name)` lookup. Keep it thin. Presentation such as tables,
-  `to_frame()`, and ranking views belongs in methods or helpers added only
-  when needed.
+- **`ValueResult`**: value-level evidence for one categorical value, ordinal
+  level, or continuous quantile bin against a binary target: `value`,
+  `support`, `target_count`, `target_rate`, `baseline_rate`, `lift`. It is
+  intentionally scoped to binary targets for v0.1. Multiclass or regression
+  targets will need different value-level fields (per-class rates, target
+  means). Add those as separate models rather than making this one generic.
+- **`DiscoveryReport`**: a result container with `target`, `features`, and
+  `feature(name)` lookup. It exposes the same evidence as JSON-safe plain data
+  (`to_dict()`), a compact terminal table, a notebook HTML view, and the
+  optional matplotlib mosaic (`plot()`). Presentation helpers belong on the
+  report or in `results`, while statistical computation stays outside it.
 
 Models are frozen dataclasses. Constructors validate structural invariants:
 counts are non-negative, `target_count <= support`, probabilities are in
@@ -208,7 +209,8 @@ src/signapy/
 │                        #   ordinal; discovery/feature.py reorders for ordinal),
 │                        #   build_binned_value_results (continuous quantile bins)
 └── results/
-    └── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
+    ├── models.py      # FeatureResult, ValueResult, DiscoveryReport (implemented)
+    └── _plot.py       # optional matplotlib signature mosaic
 ```
 
 Dependency direction: `discovery` → `metrics`, `profiling`, `results`;

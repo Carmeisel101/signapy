@@ -155,7 +155,7 @@ def _check_probability(name: str, value: float) -> None:
 
 @dataclass(frozen=True)
 class ValueResult:
-    """Value-level evidence for one category or ordinal level.
+    """Value-level evidence for one category, ordinal level, or numeric bin.
 
     Scoped to binary targets for v0.1: rates refer to the positive class.
 

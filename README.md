@@ -191,8 +191,8 @@ An ordinal feature must be an `Enum` (an ordered declaration); a plain
 
 ### Reading the report
 
-`discover()` returns a `DiscoveryReport` of numbers; nothing is drawn unless
-you ask. The same report has several views:
+`discover()` returns a `DiscoveryReport` of numbers without drawing during
+the analysis. The same report has several explicit and notebook-native views:
 
 | You want | Use |
 | --- | --- |
