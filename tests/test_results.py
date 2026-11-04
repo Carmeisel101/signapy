@@ -294,3 +294,64 @@ def test_plot_shows_long_feature_names_in_full():
     for name in names:
         assert name in texts
     assert not any("…" in t for t in texts if t.startswith("customer"))
+
+
+def _mosaic(names):
+    features = tuple(
+        make_feature(feature=name, values=(make_value(),)) for name in names
+    )
+    return DiscoveryReport("y", features).plot()
+
+
+ODD_NAMES = [
+    "segment ",
+    " segment",
+    "a\nb\nc\nd",
+    "tab\tname",
+    "x" * 120,
+    "a_very_long_column_name_that_wraps_over_many_separate_display_lines_here",
+    "",
+    "   ",
+]
+
+
+@pytest.mark.parametrize("name", ODD_NAMES)
+def test_display_and_wrap_never_drop_characters(name):
+    from signapy.results._plot import _display, _wrap_name
+
+    shown = _display(name)
+    assert "\n" not in shown
+    assert "".join(_wrap_name(shown)) == shown
+
+
+def test_display_makes_invisible_differences_visible():
+    from signapy.results._plot import _display
+
+    assert _display("segment ") == "segment␣"
+    assert _display(" segment") == "␣segment"
+    assert _display("a\nb") == "a\\nb"
+    assert _display("") == "(empty)"
+    assert len({_display(n) for n in ["segment", "segment ", " segment"]}) == 3
+
+
+@pytest.mark.parametrize("name", ODD_NAMES)
+def test_plot_renders_odd_feature_names(name):
+    import io
+
+    pytest.importorskip("matplotlib")
+    fig = _mosaic([name, "other"])
+    fig.savefig(io.BytesIO(), format="png")
+
+
+def test_plot_rows_grow_so_long_names_never_overlap_following_lines():
+    pytest.importorskip("matplotlib")
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    fig = _mosaic(["x" * 100, "short"])
+    renderer = FigureCanvasAgg(fig).get_renderer()
+    texts = fig.axes[0].texts
+    name_text = next(t for t in texts if t.get_text().startswith("xxxx"))
+    effect_text = next(t for t in texts if t.get_text().startswith("V = "))
+    assert name_text.get_window_extent(renderer).y0 >= (
+        effect_text.get_window_extent(renderer).y1
+    )

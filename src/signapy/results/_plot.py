@@ -48,12 +48,33 @@ _HEADER_H = 1.3
 _FOOTER_H = 1.5
 
 
+def _display(text: str) -> str:
+    """Render ``text`` safely on one line without making names ambiguous.
+
+    Control and other non-printable characters (newlines, tabs, zero-width
+    marks) are shown as escapes such as ``\\n``, and leading or trailing
+    spaces are shown as ``␣``, so two names that differ only in invisible
+    characters still look different on the plot.
+    """
+    escaped = "".join(
+        c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+        for c in text
+    )
+    core = escaped.strip(" ")
+    lead = len(escaped) - len(escaped.lstrip(" "))
+    trail = len(escaped) - len(escaped.rstrip(" "))
+    if not core:
+        return "␣" * lead or "(empty)"
+    return "␣" * lead + core + "␣" * trail
+
+
 def _wrap_name(name: str, width: int = 17) -> list[str]:
     """Split ``name`` into lines of at most ``width`` characters, never dropping text.
 
     Lines break after underscores and spaces where possible, and inside a
     token only when that token alone is longer than ``width``, so distinct
-    names always stay distinguishable.
+    names always stay distinguishable. ``name`` should already be passed
+    through :func:`_display`.
     """
     tokens = re.findall(r"[^_ ]+[_ ]?|[_ ]", name)
     lines: list[str] = []
@@ -71,7 +92,24 @@ def _wrap_name(name: str, width: int = 17) -> list[str]:
         current += token
     if current:
         lines.append(current)
-    return [line.rstrip() for line in lines] or [name]
+    return lines or [name]
+
+
+def _label_layout(lines: list[str]) -> tuple[float, float, float, float, float]:
+    """Vertical layout of a feature's label panel.
+
+    Returns ``(font_size, name_offset, effect_offset, n_offset, row_height)``,
+    with offsets measured from the row's top. Rows grow with the number of
+    wrapped name lines, so a long name never overlaps the lines below it or
+    the next row.
+    """
+    if len(lines) == 1 and len(lines[0]) <= 13:
+        return 12, 0.205, 0.475, 0.725, _ROW_H
+    if len(lines) <= 2:
+        return 9, 0.22, 0.57, 0.79, _ROW_H
+    effect = 0.07 + len(lines) * 0.13 + 0.17
+    n_offset = effect + 0.2
+    return 7.5, 0.07, effect, n_offset, max(_ROW_H, n_offset + 0.13)
 
 
 def _symbol(feature: FeatureResult) -> str:
@@ -120,7 +158,9 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
     )
     cmap = LinearSegmentedColormap.from_list("signapy_lift", _COLORS)
 
-    height = _HEADER_H + len(features) * (_ROW_H + _ROW_GAP) + _FOOTER_H
+    labels = [_wrap_name(_display(str(f.feature))) for f in features]
+    layouts = [_label_layout(lines) for lines in labels]
+    height = _HEADER_H + sum(row[-1] + _ROW_GAP for row in layouts) + _FOOTER_H
     fig = Figure(figsize=(_WIDTH, height), facecolor="white")
     ax = fig.add_axes((0, 0, 1, 1))
     ax.set_xlim(0, _WIDTH)
@@ -147,7 +187,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
     ax.text(
         _MARGIN + 0.1,
         0.5,
-        f"Mosaic: Feature vs. {report.target} Lift",
+        f"Mosaic: Feature vs. {_display(str(report.target))} Lift",
         fontsize=18,
         fontweight="bold",
         color=_INK,
@@ -180,21 +220,14 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
     tile_x0 = _MARGIN + _LABEL_W + 0.15
     tile_w = _WIDTH - _MARGIN - tile_x0
 
-    for i, feature in enumerate(features):
-        y = _HEADER_H + i * (_ROW_H + _ROW_GAP)
-        mid = y + _ROW_H / 2
+    y = _HEADER_H
+    for feature, name_lines, layout in zip(features, labels, layouts, strict=True):
+        name_size, name_off, effect_off, n_off, row_h = layout
+        mid = y + row_h / 2
 
-        box(_MARGIN, y, _LABEL_W, _ROW_H, _PANEL, 0.12)
-        name_lines = _wrap_name(str(feature.feature))
-        if len(name_lines) == 1 and len(name_lines[0]) <= 13:
-            name_size, name_y, name_va = 12, mid - 0.27, "center"
-            effect_y, n_y = mid, mid + 0.25
-        elif len(name_lines) <= 2:
-            name_size, name_y, name_va = 9, y + 0.22, "center"
-            effect_y, n_y = y + 0.57, y + 0.79
-        else:
-            name_size, name_y, name_va = 7.5, y + 0.07, "top"
-            effect_y, n_y = y + 0.7, y + 0.87
+        box(_MARGIN, y, _LABEL_W, row_h, _PANEL, 0.12)
+        top_anchored = len(name_lines) > 2
+        name_y, effect_y, n_y = y + name_off, y + effect_off, y + n_off
         ax.text(
             _MARGIN + 0.18,
             name_y,
@@ -202,7 +235,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
             fontsize=name_size,
             fontweight="bold",
             color=_INK,
-            va=name_va,
+            va="top" if top_anchored else "center",
             linespacing=1.15,
         )
         ax.text(
@@ -223,7 +256,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
         )
 
         if not feature.values:
-            box(tile_x0, y, tile_w, _ROW_H, _NEUTRAL, 0.12)
+            box(tile_x0, y, tile_w, row_h, _NEUTRAL, 0.12)
             ax.text(
                 tile_x0 + tile_w / 2,
                 mid,
@@ -234,6 +267,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
                 ha="center",
                 va="center",
             )
+            y += row_h + _ROW_GAP
             continue
 
         total = sum(v.support for v in feature.values)
@@ -242,11 +276,11 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
             width = value.support / total * tile_w
             tile = max(width - _TILE_GAP, 0.02)
             rgba = cmap(norm(min(max(value.lift, norm.vmin), norm.vmax)))
-            box(x, y, tile, _ROW_H, rgba, 0.1)
+            box(x, y, tile, row_h, rgba, 0.1)
             luminance = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
             ink = _INK if luminance > 0.55 else "white"
             cx = x + tile / 2
-            name = _short(str(value.value), max(int(tile / 0.085), 2))
+            name = _short(_display(str(value.value)), max(int(tile / 0.085), 2))
             if tile >= 1.1:
                 ax.text(
                     cx,
@@ -298,6 +332,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
                     va="center",
                 )
             x += width
+        y += row_h + _ROW_GAP
 
     # Colour bar.
     bar_w = 6.5
