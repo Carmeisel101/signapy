@@ -189,6 +189,45 @@ Dtype mapping to know about:
 An ordinal feature must be an `Enum` (an ordered declaration); a plain
 `Categorical` has no declared order and is rejected as ordinal.
 
+### Reading the report
+
+`discover()` returns a `DiscoveryReport` of numbers; nothing is drawn unless
+you ask. The same report has several views:
+
+| You want | Use |
+| --- | --- |
+| Python access | `report.features`, `report.feature("name")`, `.values` |
+| Plain data for scripts, JSON, or agents | `report.to_dict()` |
+| A quick look in a terminal | `print(report)` |
+| A table in Jupyter or Databricks | `report` as the last line of a cell |
+| The mosaic (needs `pip install signapy[plot]`) | `report.plot()` |
+
+`print(report)` shows one summary row per feature; the per-value and per-bin
+lift lives in `to_dict()` and `.values`.
+
+### Using SignaPy from an agent
+
+Nothing in SignaPy runs `to_dict()` for you, so an agent has to ask for it.
+The reliable pattern is to run `discover()` and serialize the whole report:
+
+```python
+import json
+import signapy
+
+report = signapy.discover(df, target="converted", positive_class=True)
+print(json.dumps(report.to_dict(), indent=2))
+```
+
+`to_dict()` returns plain, JSON-safe data: for each feature the
+`feature_type`, `effect_size_method` and `effect_size`, `p_value`, `n`,
+`missing_rate`, `details`, and `values` (per-category, per-level, or
+per-quantile-bin `support`, `target_rate`, `baseline_rate`, and `lift`; `None`
+when a feature has no value-level results). Read effect sizes within their
+method (`cramers_v`, `point_biserial`, `spearman_rho`), since they aren't
+strictly comparable across methods, and treat everything as exploratory
+association, not causation. See [`docs/metrics.md`](docs/metrics.md) for
+interpretation.
+
 `discover()` supports **categorical, continuous, and ordinal features
 against a binary target** (see [v0.1 scope](#v01-scope) below):
 

@@ -227,7 +227,10 @@ def discover(
         A :class:`~signapy.results.DiscoveryReport` with one
         :class:`~signapy.results.FeatureResult` per selected feature, in
         the same order as ``df.columns`` (restricted to the selected
-        features when ``feature_types`` is given).
+        features when ``feature_types`` is given). For machine-readable
+        output (scripts, JSON, agents), call
+        :meth:`~signapy.results.DiscoveryReport.to_dict` — ``print(report)``
+        shows only one summary row per feature.
 
     Raises:
         TypeError: If ``df`` is neither a pandas nor Polars ``DataFrame``.

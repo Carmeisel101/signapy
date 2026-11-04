@@ -228,6 +228,7 @@ class DiscoveryReport:
             lines.append(
                 "  ".join(c.ljust(w) for c, w in zip(row, widths, strict=True)).rstrip()
             )
+        lines.append("Full detail: report.to_dict() or report.feature(name).values")
         return "\n".join(lines)
 
     def _repr_html_(self) -> str:

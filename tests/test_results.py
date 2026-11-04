@@ -125,6 +125,8 @@ def test_report_to_dict_is_json_serializable():
 def test_report_str_and_html():
     report = _demo_report()
     assert "feature" in str(report) and "c" in str(report)
+    assert str(report).endswith("report.feature(name).values")
+    assert "to_dict()" in str(report)
     assert "<table>" in report._repr_html_()
 
 
