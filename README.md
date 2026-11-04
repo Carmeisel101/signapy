@@ -199,7 +199,7 @@ you ask. The same report has several views:
 | Python access | `report.features`, `report.feature("name")`, `.values` |
 | Plain data for scripts, JSON, or agents | `report.to_dict()` |
 | A quick look in a terminal | `print(report)` |
-| A table in Jupyter or Databricks | `report` as the last line of a cell |
+| The mosaic and a summary table in Jupyter or Databricks | `report` as the last line of a cell (table only without matplotlib) |
 | The mosaic (needs `pip install signapy[plot]`) | `report.plot()` |
 
 `print(report)` shows one summary row per feature; the per-value and per-bin

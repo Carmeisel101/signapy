@@ -6,6 +6,8 @@
   HTML repr, and `plot()`.
 - `plot()` renders SignaPy's signature mosaic (tile width = support, colour =
   lift) and returns a matplotlib `Figure`. Requires the optional `plot` extra.
+- In Jupyter and Databricks, evaluating a report now shows the mosaic (inline
+  PNG) above the summary table; without matplotlib it shows the table alone.
 - `print(report)` ends with a pointer to `to_dict()`, and the README has new
   "Reading the report" and "Using SignaPy from an agent" sections.
 - Continuous features now get value-level evidence: `discover()` cuts each into

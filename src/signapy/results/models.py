@@ -16,7 +16,9 @@ Design notes (see ``docs/architecture.md`` for the full rationale):
 
 from __future__ import annotations
 
+import base64
 import html
+import io
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -232,7 +234,12 @@ class DiscoveryReport:
         return "\n".join(lines)
 
     def _repr_html_(self) -> str:
-        """HTML table for Jupyter and Databricks notebooks."""
+        """Mosaic plus summary table for Jupyter and Databricks notebooks.
+
+        The mosaic is embedded as an inline PNG, so it renders anywhere HTML
+        does. Without matplotlib (the optional ``plot`` extra) only the table
+        is shown.
+        """
         head = "".join(f"<th>{html.escape(h)}</th>" for h in self._HEADER)
         body = "".join(
             "<tr>" + "".join(f"<td>{html.escape(c)}</td>" for c in row) + "</tr>"
@@ -241,7 +248,25 @@ class DiscoveryReport:
         return (
             f"<div><b>DiscoveryReport</b> &mdash; target: "
             f"<code>{html.escape(self.target)}</code></div>"
+            f"{self._mosaic_html()}"
             f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+        )
+
+    def _mosaic_html(self) -> str:
+        """Inline ``<img>`` of the mosaic, or ``""`` if it can't be drawn."""
+        if not self.features:
+            return ""
+        try:
+            fig = self.plot()
+        except ImportError:
+            return ""
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png", dpi=100, bbox_inches="tight")
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return (
+            f'<img alt="Mosaic of feature lift against {html.escape(self.target)}" '
+            f'style="max-width:100%;height:auto" '
+            f'src="data:image/png;base64,{encoded}">'
         )
 
     def plot(self) -> Figure:

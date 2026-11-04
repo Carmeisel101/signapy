@@ -130,6 +130,29 @@ def test_report_str_and_html():
     assert "<table>" in report._repr_html_()
 
 
+def test_report_html_embeds_mosaic_when_matplotlib_available():
+    pytest.importorskip("matplotlib")
+    html_out = _demo_report()._repr_html_()
+    assert 'src="data:image/png;base64,' in html_out
+    assert html_out.index("<img") < html_out.index("<table>")
+
+
+def test_report_html_falls_back_to_table_without_matplotlib(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_matplotlib(name, *args, **kwargs):
+        if name.split(".")[0] == "matplotlib":
+            raise ImportError("no matplotlib")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_matplotlib)
+    html_out = _demo_report()._repr_html_()
+    assert "<img" not in html_out
+    assert "<table>" in html_out
+
+
 def test_report_plot_renders_mosaic():
     import io
 
