@@ -97,7 +97,7 @@ class TestContinuousDiscoveryKnownValues:
         assert details["negative_mean"] == pytest.approx(17.0)
         assert details["mean_difference"] == pytest.approx(15.0)
 
-    def test_values_is_none(self):
+    def test_values_is_none_when_too_few_rows_to_bin(self):
         report = signapy.discover(
             continuous_df(),
             target="outcome",
@@ -234,9 +234,9 @@ class TestMixedDiscovery:
         )
         assert continuous_result.effect_size == pytest.approx(expected_pb.coefficient)
         assert continuous_result.p_value == pytest.approx(expected_pb.p_value)
-        assert continuous_result.values is None
+        assert continuous_result.values is not None
 
-    def test_categorical_values_populated_continuous_values_none(self):
+    def test_categorical_and_continuous_values_both_populated(self):
         report = signapy.discover(
             mixed_df(),
             target="outcome",
@@ -248,7 +248,7 @@ class TestMixedDiscovery:
         )
         assert report.feature("category_context").values is not None
         assert len(report.feature("category_context").values) == 3
-        assert report.feature("continuous_measurement").values is None
+        assert len(report.feature("continuous_measurement").values) == 5
 
     def test_multiple_features_of_each_type(self):
         df = mixed_df()

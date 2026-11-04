@@ -87,13 +87,15 @@ def print_continuous(result: FeatureResult) -> None:
         f"negative: n={details['negative_n']}, mean={details['negative_mean']:.4f}  "
         f"mean_difference={details['mean_difference']:.4f}"
     )
-    # Unlike the categorical feature above, result.values is None: continuous
-    # localization (which *range* of values carries the signal) requires
-    # binning, and SignaPy deliberately doesn't do that automatically yet
-    # (see docs/architecture.md, "Continuous localization"). The
-    # point-biserial coefficient and group means are feature-level evidence
-    # only; there is currently no continuous equivalent of categorical_lift.
-    print(f"values={result.values!r}  (continuous localization is not yet implemented)")
+    # Continuous features are localized by quantile bins: each bin is a value
+    # with its own support, target rate, and lift, in ascending order. Reading
+    # the bins left to right shows where in the range the signal lives
+    # (see docs/metrics.md, section 6a).
+    for value in result.values or ():
+        print(
+            f"  bin {value.value!s:<14} support={value.support:<4} "
+            f"target_rate={value.target_rate:.3f} lift={value.lift:.2f}"
+        )
 
 
 def main() -> None:

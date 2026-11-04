@@ -214,7 +214,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
                     cx,
                     mid - 0.28,
                     name,
-                    fontsize=11,
+                    fontsize=11 if len(name) <= 10 else 9.5,
                     fontweight="bold",
                     color=ink,
                     ha="center",

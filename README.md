@@ -207,10 +207,11 @@ against a binary target** (see [v0.1 scope](#v01-scope) below):
 - Categorical features get Cramér's V, a chi-square test, and per-category
   `values` (support, target rate, baseline rate, lift), in order of first
   appearance. Continuous features get a point-biserial correlation, its
-  p-value, and group counts/means in `details` — but **`values` is always
-  `None`** for continuous features: localizing *where within a continuous
-  range* the signal lives needs binning, which SignaPy doesn't do
-  automatically (see [`docs/architecture.md`](docs/architecture.md)).
+  p-value, group counts/means in `details`, and `values` over up to five
+  equal-count quantile bins (labelled like `(38.4, 44.1]`), showing *where
+  within the range* the signal lives; `values` is `None` only when the
+  feature has too few rows or distinct values to bin (see
+  [`docs/architecture.md`](docs/architecture.md)).
   Ordinal features get a Spearman rank correlation, its p-value, and the
   same per-level `values` as categorical — but in the feature's *declared*
   category order, not order of first appearance.
@@ -244,7 +245,8 @@ Implemented so far:
 - **Categorical features:** Cramér's V (effect size), chi-square test
   (p-value), and per-category support/target rate/baseline rate/lift
 - **Continuous features:** point-biserial correlation (effect size and
-  p-value) and group counts/means; no value-level localization yet
+  p-value), group counts/means, and per-bin support/target rate/baseline
+  rate/lift over up to five quantile bins
 - **Ordinal features:** Spearman rank correlation (effect size and
   p-value), and per-level support/target rate/baseline rate/lift in
   declared category order; requires an explicit ordered `Categorical`
@@ -259,8 +261,7 @@ including the missing-data and dtype policies this slice follows.
 
 Not yet implemented: boolean features, semantic type overrides (e.g.
 integer-coded categories), multiclass or continuous targets,
-continuous-feature value-level localization (binning — unlike ordinal,
-which got this via its declared levels), additional value-level metrics
+configurable continuous binning (bin count and strategy), additional value-level metrics
 (risk difference, odds ratio, confidence intervals), interaction discovery,
 and stability analysis. See the
 [discovery hierarchy](#discovery-hierarchy) above and

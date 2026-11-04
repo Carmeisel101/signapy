@@ -248,8 +248,9 @@ class DiscoveryReport:
 
         One row per feature, ordered by strength of association. Within a row,
         each value is a tile whose width is its support and whose colour is
-        its lift against the baseline target rate. Continuous features have no
-        value-level results yet and appear as a single neutral tile.
+        its lift against the baseline target rate. Continuous features appear as
+        quantile bins; a feature with no value-level results (too few rows or
+        distinct values to bin) appears as a single neutral tile.
 
         The figure is not registered with ``pyplot``: in a notebook, evaluate
         the returned figure to display it; in a script, call

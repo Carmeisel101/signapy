@@ -43,7 +43,7 @@ TensorFlow) to do statistical feature discovery.
 | --- | --- |
 | **Feature** | A candidate input column being evaluated. |
 | **Target** | The labeled outcome column. |
-| **Value** | A distinct level of a (categorical/boolean/ordinal) feature. Continuous features may later be localized via bins/ranges. |
+| **Value** | A distinct level of a (categorical/boolean/ordinal) feature. Continuous features are localized via quantile bins. |
 | **Signal** | A non-trivial statistical relationship between a feature (or value) and the target. |
 | **Evidence** | Numbers supporting or weakening a claim of signal: effect size, uncertainty, support, prevalence, localization, stability. |
 | **Feature type** | Semantic type of a feature: `continuous`, `ordinal`, `categorical`, `boolean`. |
@@ -502,19 +502,22 @@ def discover(
   `analyze_continuous_feature` re-raises with the feature name added, the
   same wrapping pattern `analyze_categorical_feature` already uses around
   `cramers_v`/`chi_square`.
-- **Why continuous localization (binning) was deferred.** Categorical
+- **Continuous localization uses quantile bins.** Categorical
   `categorical_lift` works because "which value" is already a discrete,
-  finite question. For a continuous feature, "which range of values" isn't
-  answerable without first choosing bin boundaries — equal-width, quantile,
-  or domain-specific — and that choice is a modeling decision this project
-  is not making on a user's behalf in this iteration (consistent with
-  SignaPy's non-goals: it surfaces evidence, it doesn't make modeling
-  choices for you). `FeatureResult.values` is therefore always `None` for
-  a continuous feature, never an empty tuple (preserving the existing
-  `values=None` meaning "not performed," from the results model's original
-  design in §7) and never something invented to fill the gap. A future
-  feature can add `values` for continuous features once binning is
-  designed, without changing `FeatureResult`'s shape.
+  finite question; a continuous feature needs bin boundaries first. This
+  was originally deferred because the choice (equal-width, quantile,
+  domain-specific) is a modeling decision. It is now made once, in
+  `discovery.value.build_binned_value_results`, with the least
+  assumption-laden option: up to five **equal-count (quantile) bins**, so
+  every bin carries comparable evidence and outliers can't stretch the
+  edges. Fewer bins are used when there are fewer than ten rows per two bins
+  or when ties collapse edges (`duplicates="drop"`). Labels are interval
+  strings (first bin closed, `"[10, 20]"`; the rest `"(20, 30]"`), widened in
+  precision until distinct. Each bin then flows through `categorical_lift`
+  like any value, in ascending order. `FeatureResult.values` is `None` for a
+  continuous feature only when it cannot be split into at least two bins
+  (too few rows, or too few distinct values) — "not performed", never an
+  empty tuple. Bin count and strategy are not yet user-configurable.
 - **`FeatureResult.details` typing widened** from `Mapping[str, float]` to
   `Mapping[str, float | int]`: continuous `details` legitimately mixes
   integer group counts (`positive_n`, `negative_n`) with floating-point

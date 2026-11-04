@@ -279,7 +279,7 @@ class TestOrdinalInMixedDiscovery:
         assert names == {"severity", "channel", "measurement"}
         assert report.feature("severity").feature_type is FeatureType.ORDINAL
         assert report.feature("severity").values is not None
-        assert report.feature("measurement").values is None
+        assert report.feature("measurement").values is not None
 
     def test_column_order_preserved_with_ordinal(self):
         df = severity_df()
