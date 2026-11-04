@@ -205,6 +205,40 @@ you ask. The same report has several views:
 `print(report)` shows one summary row per feature; the per-value and per-bin
 lift lives in `to_dict()` and `.values`.
 
+### Reading the mosaic
+
+`report.plot()` draws SignaPy's signature view: one row per feature, one
+tile per value, so you see *where* in each feature the signal lives, not just
+how strong it is overall.
+
+- **Tile width** is the value's support, its share of that feature's rows.
+  A thin tile means little data behind it.
+- **Tile color** is the value's lift against the baseline target rate, on a
+  scale centered at 1 (white). Red is over-represented in the positive class,
+  blue is under-represented. The lift and support percentage are printed in
+  the tile when it is wide enough.
+- **Continuous features** appear as up to five equal-count quantile bins,
+  labelled like `(38.4, 44.1]`, read left to right: steadily rising lift is a
+  roughly linear relationship, a mid-range peak is non-monotonic.
+- **Label panel** (left): the feature name, its effect size (`V` for Cramér's
+  V, `ρ` for Spearman, `r` for point-biserial), and its `n`. Long names wrap
+  onto extra lines and the row grows; nothing is cut off. Spaces and control
+  characters that would make two names look alike are made visible (`␣`,
+  `\n`).
+- **Row order:** effect sizes from different measures are not strictly
+  comparable, so rows are grouped by measure (the group with the strongest
+  feature first) and sorted by absolute effect size within each group. Read
+  rankings within a group, not across groups.
+- **Long value labels** are cut to 20 characters with an ellipsis, and tiles
+  too narrow for text are left unlabeled. The full labels are always in
+  `report.to_dict()`.
+- **Large reports:** `report.plot(max_features=N)` draws only the `N` features
+  with the largest absolute effect size and says so in the figure. The
+  notebook view does this automatically for the top 30.
+
+The baseline in the header badge is a range when features have different
+missing rows, because each feature's baseline uses only its own valid rows.
+
 ### Using SignaPy from an agent
 
 Nothing in SignaPy runs `to_dict()` for you, so an agent has to ask for it.

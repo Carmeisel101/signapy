@@ -82,5 +82,5 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # The mosaic deliberately uses typographic symbols (×, ρ, –) in its labels.
-"src/signapy/results/_plot.py" = ["RUF001"]
+"src/signapy/results/_plot.py" = ["RUF001", "RUF002"]
 "tests/test_results.py" = ["RUF001"]

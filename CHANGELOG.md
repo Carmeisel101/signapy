@@ -10,6 +10,11 @@
   PNG) above the summary table; without matplotlib it shows the table alone.
 - `print(report)` ends with a pointer to `to_dict()`, and the README has new
   "Reading the report" and "Using SignaPy from an agent" sections.
+- Mosaic conventions: rows are grouped by effect-size measure (V, ρ, r) and
+  sorted by absolute effect size within each group; value labels are cut to
+  20 characters; long feature names wrap onto extra lines and the row grows;
+  `plot(max_features=N)` draws only the strongest `N` features, and the
+  notebook view caps at 30. See the README's "Reading the mosaic".
 - Continuous features now get value-level evidence: `discover()` cuts each into
   up to five equal-count quantile bins (fewer when rows or distinct values are
   scarce) and reports support, target rate, baseline rate, and lift per bin,

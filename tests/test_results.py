@@ -2,6 +2,7 @@ import dataclasses
 import datetime
 import decimal
 import enum
+import itertools
 import json
 import uuid
 
@@ -355,3 +356,176 @@ def test_plot_rows_grow_so_long_names_never_overlap_following_lines():
     assert name_text.get_window_extent(renderer).y0 >= (
         effect_text.get_window_extent(renderer).y1
     )
+
+
+class _RaisingStr:
+    def __str__(self):
+        raise RuntimeError("boom")
+
+
+class _LyingStr(str):
+    def __str__(self):
+        return "lie"
+
+
+class _LyingTimestamp(datetime.datetime):
+    def isoformat(self, *args, **kwargs):
+        return "lie"
+
+
+def test_to_dict_never_raises_on_hostile_labels():
+    labels = [
+        _RaisingStr(),
+        _LyingStr("truth"),
+        _LyingTimestamp(2024, 1, 2, 3, 4, 5),
+    ]
+    feature = make_feature(values=tuple(make_value(value=label) for label in labels))
+    values = _strict_json(DiscoveryReport("y", (feature,)).to_dict())["features"][0][
+        "values"
+    ]
+    assert values[0]["value"].endswith("._RaisingStr>")
+    assert values[1]["value"] == "truth"
+    assert values[2]["value"] == "2024-01-02T03:04:05"
+
+
+def test_to_dict_normalizes_numpy_counts():
+    value = make_value(support=np.int64(100), target_count=np.int64(40))
+    feature = make_feature(n=np.int64(500), values=(value,))
+    entry = _strict_json(DiscoveryReport("y", (feature,)).to_dict())["features"][0]
+    assert entry["n"] == 500
+    assert entry["values"][0]["support"] == 100
+    assert entry["values"][0]["target_count"] == 40
+
+
+def test_plot_rare_tiles_stay_inside_their_allocation():
+    pytest.importorskip("matplotlib")
+    from matplotlib.patches import FancyBboxPatch
+
+    from signapy.results._plot import _HEADER_H, _LABEL_W, _MARGIN, _WIDTH
+
+    supports = [9970] + [1] * 30
+    values = tuple(
+        make_value(value=f"v{i}", support=s, target_count=0, target_rate=0.0, lift=0.0)
+        for i, s in enumerate(supports)
+    )
+    fig = DiscoveryReport("y", (make_feature(values=values),)).plot()
+    tile_x0 = _MARGIN + _LABEL_W + 0.15
+    tiles = sorted(
+        (p.get_x(), p.get_x() + p.get_width())
+        for p in fig.axes[0].patches
+        if isinstance(p, FancyBboxPatch)
+        and abs(p.get_y() - _HEADER_H) < 1e-9
+        and p.get_x() >= tile_x0 - 1e-9
+    )
+    assert len(tiles) == len(supports)
+    assert tiles[-1][1] <= _WIDTH - _MARGIN + 1e-9
+    for (_, right), (left, _) in itertools.pairwise(tiles):
+        assert right <= left + 1e-9
+
+
+def test_plot_handles_zero_total_support():
+    pytest.importorskip("matplotlib")
+    zero = make_value(support=0, target_count=0, target_rate=0.0, lift=0.0)
+    texts = [
+        t.get_text()
+        for t in DiscoveryReport("y", (make_feature(values=(zero,)),))
+        .plot()
+        .axes[0]
+        .texts
+    ]
+    assert any("no value-level breakdown" in t for t in texts)
+
+
+def test_plot_max_features_keeps_strongest_and_says_so():
+    pytest.importorskip("matplotlib")
+    features = tuple(
+        make_feature(feature=f"f{i}", effect_size=i / 10, values=(make_value(),))
+        for i in range(1, 6)
+    )
+    fig = DiscoveryReport("y", features).plot(max_features=2)
+    texts = [t.get_text() for t in fig.axes[0].texts]
+    assert "f5" in texts and "f4" in texts and "f1" not in texts
+    assert any("top 2 of 5" in t for t in texts)
+    with pytest.raises(ValueError, match="max_features"):
+        DiscoveryReport("y", features).plot(max_features=0)
+
+
+def test_html_repr_caps_features_and_survives_drawing_errors(monkeypatch):
+    pytest.importorskip("matplotlib")
+    features = tuple(
+        make_feature(feature=f"f{i}", effect_size=0.5, values=(make_value(),))
+        for i in range(60)
+    )
+    report = DiscoveryReport("y", features)
+    assert "<img" in report._repr_html_()
+
+    def boom(self, max_features=None):
+        raise ValueError("cannot draw")
+
+    monkeypatch.setattr(DiscoveryReport, "plot", boom)
+    html_out = report._repr_html_()
+    assert "<img" not in html_out and "<table>" in html_out
+
+
+def test_str_escapes_control_characters_in_feature_names():
+    feature = make_feature(feature="a\nb", values=(make_value(),))
+    text = str(DiscoveryReport("y", (feature,)))
+    assert "a\\nb" in text
+    assert text.count("\n") == 3
+
+
+def test_plot_groups_rows_by_measure_then_strength():
+    pytest.importorskip("matplotlib")
+    specs = [
+        ("cat_strong", "cramers_v", 0.3),
+        ("num_strong", "point_biserial", 0.5),
+        ("cat_weak", "cramers_v", 0.2),
+        ("num_weak", "point_biserial", 0.1),
+    ]
+    features = tuple(
+        make_feature(
+            feature=name,
+            effect_size_method=method,
+            effect_size=effect,
+            values=(make_value(),),
+        )
+        for name, method, effect in specs
+    )
+    texts = [t.get_text() for t in DiscoveryReport("y", features).plot().axes[0].texts]
+    order = [t for t in texts if t in {name for name, _, _ in specs}]
+    assert order == ["num_strong", "num_weak", "cat_strong", "cat_weak"]
+
+
+def test_plot_cuts_long_value_labels_but_to_dict_keeps_them():
+    pytest.importorskip("matplotlib")
+    from signapy.results._plot import _MAX_LABEL_CHARS
+
+    label = "a_really_long_category_label_" * 3
+    feature = make_feature(values=(make_value(value=label),))
+    report = DiscoveryReport("y", (feature,))
+    drawn = [
+        t.get_text() for t in report.plot().axes[0].texts if "really" in t.get_text()
+    ]
+    assert drawn
+    assert all(len(t) <= _MAX_LABEL_CHARS and t.endswith("…") for t in drawn)
+    assert report.to_dict()["features"][0]["values"][0]["value"] == label
+
+
+@pytest.mark.parametrize("names", [["short"], ["short", "x" * 100], ["a", "b", "c"]])
+def test_plot_colorbar_sits_below_the_last_row(names):
+    pytest.importorskip("matplotlib")
+    from matplotlib.patches import FancyBboxPatch
+
+    features = tuple(
+        make_feature(feature=n, effect_size=0.5 - i / 10, values=(make_value(),))
+        for i, n in enumerate(names)
+    )
+    fig = DiscoveryReport("y", features).plot()
+    height = fig.get_figheight()
+    rows_bottom = max(
+        p.get_y() + p.get_height()
+        for p in fig.axes[0].patches
+        if isinstance(p, FancyBboxPatch) and p.get_height() < height - 1
+    )
+    colorbar_top = (1 - fig.axes[1].get_position().y1) * height
+    assert rows_bottom <= colorbar_top

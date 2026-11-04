@@ -330,6 +330,23 @@ bins. Bin count and strategy are not yet configurable. Interpret per-bin
 lift with the same caveats as §6, and remember the bins are exploratory:
 they are chosen from the same data they describe.
 
+## 6b. Reading the mosaic
+
+`DiscoveryReport.plot()` draws the value-level results of §6 and §6a for every
+feature at once: rows are features, tiles are values (or quantile bins), tile
+width is `support`, and tile color is `lift` on a scale centered at 1. It
+adds no statistics of its own, so every caveat in §6 applies: a dark tile is
+an *association* in this sample, and a thin dark tile is strong lift resting
+on little data, so check the support before trusting it.
+
+Rows are grouped by effect-size measure (Cramér's V, Spearman ρ,
+point-biserial r) and sorted by absolute effect size within each group,
+because the three are different statistics and are not strictly comparable
+across groups. Long value labels are cut to 20 characters and tiles too
+narrow for text are unlabeled; use `report.to_dict()` for the full labels and
+numbers. See the README's "Reading the mosaic" for the full list of
+conventions.
+
 ## 7. How to use the metrics together
 
 For a **categorical** feature:

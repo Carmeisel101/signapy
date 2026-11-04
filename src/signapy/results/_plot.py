@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -37,6 +37,10 @@ _COLORS = [
     "#e8553f",
     "#8f0a1c",
 ]
+
+# Value labels inside tiles are cut to at most this many characters, with an
+# ellipsis; the full label is always available from ``to_dict()``.
+_MAX_LABEL_CHARS = 20
 
 _WIDTH = 11.0
 _MARGIN = 0.3
@@ -92,24 +96,55 @@ def _wrap_name(name: str, width: int = 17) -> list[str]:
         current += token
     if current:
         lines.append(current)
-    return lines or [name]
+    return lines
 
 
-def _label_layout(lines: list[str]) -> tuple[float, float, float, float, float]:
+class _Layout(NamedTuple):
     """Vertical layout of a feature's label panel.
 
-    Returns ``(font_size, name_offset, effect_offset, n_offset, row_height)``,
-    with offsets measured from the row's top. Rows grow with the number of
-    wrapped name lines, so a long name never overlaps the lines below it or
-    the next row.
+    Offsets are measured from the row's top. ``top_anchored`` says whether
+    the name block hangs from ``name_offset`` (many lines) or is centred on
+    it, so alignment always agrees with the branch that chose the offsets.
+    """
+
+    font_size: float
+    name_offset: float
+    effect_offset: float
+    n_offset: float
+    row_height: float
+    top_anchored: bool
+
+
+def _label_layout(lines: list[str]) -> _Layout:
+    """Layout for a name wrapped to ``lines``; rows grow with the line count.
+
+    A long name therefore never overlaps the lines below it or the next row.
     """
     if len(lines) == 1 and len(lines[0]) <= 13:
-        return 12, 0.205, 0.475, 0.725, _ROW_H
+        return _Layout(12, 0.205, 0.475, 0.725, _ROW_H, False)
     if len(lines) <= 2:
-        return 9, 0.22, 0.57, 0.79, _ROW_H
+        return _Layout(9, 0.22, 0.57, 0.79, _ROW_H, False)
     effect = 0.07 + len(lines) * 0.13 + 0.17
     n_offset = effect + 0.2
-    return 7.5, 0.07, effect, n_offset, max(_ROW_H, n_offset + 0.13)
+    return _Layout(7.5, 0.07, effect, n_offset, max(_ROW_H, n_offset + 0.13), True)
+
+
+def _group_by_measure(features: list[FeatureResult]) -> list[FeatureResult]:
+    """Order rows by effect-size measure, then by strength within each measure.
+
+    Cramér's V, point-biserial r, and Spearman ρ are different statistics, so
+    ranking them against each other implies a comparison they don't support.
+    Rows are therefore grouped by measure (the group with the strongest
+    feature first) and sorted by absolute effect size within each group.
+    """
+    groups: dict[str, list[FeatureResult]] = {}
+    for feature in features:
+        groups.setdefault(feature.effect_size_method, []).append(feature)
+    ordered = [
+        sorted(group, key=lambda f: -abs(f.effect_size)) for group in groups.values()
+    ]
+    ordered.sort(key=lambda group: -abs(group[0].effect_size))
+    return [feature for group in ordered for feature in group]
 
 
 def _symbol(feature: FeatureResult) -> str:
@@ -132,8 +167,12 @@ def _baseline_text(features: list[FeatureResult]) -> str | None:
     return f"{low:.3f}–{high:.3f}"
 
 
-def plot_mosaic(report: DiscoveryReport) -> Figure:
-    """Render ``report`` as a mosaic and return the matplotlib ``Figure``."""
+def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Figure:
+    """Render ``report`` as a mosaic and return the matplotlib ``Figure``.
+
+    With ``max_features`` set, only that many features (largest absolute
+    effect size first) are drawn, and the header says how many were omitted.
+    """
     try:
         import numpy as np
         from matplotlib.cm import ScalarMappable
@@ -149,7 +188,12 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
     if not report.features:
         raise ValueError("report has no features to plot")
 
-    features = sorted(report.features, key=lambda f: -abs(f.effect_size))
+    if max_features is not None and max_features < 1:
+        raise ValueError(f"max_features must be at least 1, got {max_features}")
+
+    ranked = sorted(report.features, key=lambda f: -abs(f.effect_size))
+    chosen = ranked if max_features is None else ranked[:max_features]
+    features = _group_by_measure(chosen)
     lifts = [v.lift for f in features for v in f.values or () if math.isfinite(v.lift)]
     norm = TwoSlopeNorm(
         vcenter=1.0,
@@ -160,7 +204,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
 
     labels = [_wrap_name(_display(str(f.feature))) for f in features]
     layouts = [_label_layout(lines) for lines in labels]
-    height = _HEADER_H + sum(row[-1] + _ROW_GAP for row in layouts) + _FOOTER_H
+    height = _HEADER_H + sum(row.row_height + _ROW_GAP for row in layouts) + _FOOTER_H
     fig = Figure(figsize=(_WIDTH, height), facecolor="white")
     ax = fig.add_axes((0, 0, 1, 1))
     ax.set_xlim(0, _WIDTH)
@@ -173,7 +217,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
                 (x, y),
                 w,
                 h,
-                boxstyle=f"round,pad=0,rounding_size={radius}",
+                boxstyle=f"round,pad=0,rounding_size={min(radius, w / 2, h / 2)}",
                 facecolor=color,
                 edgecolor=edge,
                 linewidth=lw,
@@ -202,6 +246,13 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
         color=_MUTED,
         va="center",
     )
+    note = "Rows are grouped by effect-size measure, strongest first."
+    if len(features) < len(ranked):
+        note += (
+            f" Showing the top {len(features)} of {len(ranked)} features by "
+            "absolute effect size."
+        )
+    ax.text(_MARGIN + 0.1, 1.14, note, fontsize=9, color=_MUTED, va="center")
     baseline = _baseline_text(features)
     if baseline is not None:
         label = f"Baseline (target rate): {baseline}"
@@ -222,11 +273,10 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
 
     y = _HEADER_H
     for feature, name_lines, layout in zip(features, labels, layouts, strict=True):
-        name_size, name_off, effect_off, n_off, row_h = layout
+        name_size, name_off, effect_off, n_off, row_h, top_anchored = layout
         mid = y + row_h / 2
 
         box(_MARGIN, y, _LABEL_W, row_h, _PANEL, 0.12)
-        top_anchored = len(name_lines) > 2
         name_y, effect_y, n_y = y + name_off, y + effect_off, y + n_off
         ax.text(
             _MARGIN + 0.18,
@@ -255,7 +305,8 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
             va="center",
         )
 
-        if not feature.values:
+        total = sum(v.support for v in feature.values or ())
+        if total == 0:
             box(tile_x0, y, tile_w, row_h, _NEUTRAL, 0.12)
             ax.text(
                 tile_x0 + tile_w / 2,
@@ -270,17 +321,23 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
             y += row_h + _ROW_GAP
             continue
 
-        total = sum(v.support for v in feature.values)
         x = tile_x0
         for value in feature.values:
             width = value.support / total * tile_w
-            tile = max(width - _TILE_GAP, 0.02)
+            # Keep every tile inside its own allocation so tile width stays
+            # proportional to support: tiny tiles get a proportionally
+            # smaller gap instead of a minimum width that would overlap the
+            # next tile.
+            tile = width - min(_TILE_GAP, width * 0.25)
             rgba = cmap(norm(min(max(value.lift, norm.vmin), norm.vmax)))
             box(x, y, tile, row_h, rgba, 0.1)
             luminance = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
             ink = _INK if luminance > 0.55 else "white"
             cx = x + tile / 2
-            name = _short(_display(str(value.value)), max(int(tile / 0.085), 2))
+            name = _short(
+                _display(str(value.value)),
+                min(max(int(tile / 0.085), 2), _MAX_LABEL_CHARS),
+            )
             if tile >= 1.1:
                 ax.text(
                     cx,

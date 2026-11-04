@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from signapy.profiling.types import FeatureType, TargetType
+from signapy.results._plot import _display
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -40,11 +41,28 @@ def _check_count(name: str, value: int) -> None:
         raise ValueError(f"{name} must be non-negative, got {value}")
 
 
-def _plain(value: Any) -> Any:
-    """Encode a category label as plain, JSON-safe data.
+# The notebook repr draws at most this many features; use ``plot()`` for more.
+_HTML_MAX_FEATURES = 30
 
-    The rule is deliberately closed and type-based, so no label can reach
-    ``json.dumps`` unencoded and no arbitrary method is ever called on it:
+
+def _type_name(value: Any) -> str:
+    return f"<{type(value).__module__}.{type(value).__qualname__}>"
+
+
+def _text(value: Any) -> str:
+    """``str(value)``, or the type's name if the object's own ``__str__`` fails."""
+    try:
+        return str(value)
+    except Exception:
+        return _type_name(value)
+
+
+def _plain(value: Any) -> Any:
+    """Encode a category label as plain, strict-JSON-safe data. Never raises.
+
+    The rule is closed and type-based, and uses the *base-class* conversions
+    (``str.__str__``, ``datetime.datetime.isoformat``, ...) so a subclass
+    cannot override how it is encoded:
 
     - ``None``, ``bool``, ``int``, ``str`` and *finite* ``float`` pass
       through (numpy and builtin subclasses are normalised); non-finite
@@ -57,42 +75,57 @@ def _plain(value: Any) -> Any:
       ISO-8601 durations;
     - temporal values that cannot be converted exactly (ambiguous
       ``np.timedelta64`` month/year units, out-of-range dates) fall back to
-      ``str(value)`` rather than raising;
+      ``str(value)``;
     - other numpy scalars become the matching builtin (``np.longdouble``
       becomes ``float``);
     - tuples and lists become lists of encoded items;
-    - anything else (``Decimal``, ``UUID``, ...) becomes ``str(value)``.
+    - anything else (``Decimal``, ``UUID``, ...) becomes ``str(value)``;
+    - if encoding or ``str()`` raises for any label, the result is the
+      label's type name, e.g. ``"<mymodule.MyLabel>"``, rather than an error.
     """
+    try:
+        return _encode(value)
+    except Exception:
+        return _type_name(value)
+
+
+def _encode(value: Any) -> Any:
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, enum.Enum):
         return _plain(value.value)
     if isinstance(value, str):
-        return str(value)
+        return str.__str__(value)
     if isinstance(value, int):
-        return int(value)
+        return int.__int__(value)
     if isinstance(value, float | np.floating):
-        number = float(value)
+        number = float.__float__(value) if isinstance(value, float) else float(value)
         return number if math.isfinite(number) else str(number)
-    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
-        return value.isoformat()
+    if isinstance(value, pd.Timestamp):
+        return pd.Timestamp.isoformat(value)
+    if isinstance(value, datetime.datetime):
+        return datetime.datetime.isoformat(value)
+    if isinstance(value, datetime.date):
+        return datetime.date.isoformat(value)
+    if isinstance(value, datetime.time):
+        return datetime.time.isoformat(value)
     if isinstance(value, np.datetime64):
         try:
             return pd.Timestamp(value).isoformat()
         except (ValueError, OverflowError):
-            return str(value)
+            return _text(value)
     if isinstance(value, datetime.timedelta | np.timedelta64):
         try:
             return pd.Timedelta(value).isoformat()
         except (ValueError, OverflowError):
-            return str(value)
+            return _text(value)
     if isinstance(value, np.bool_):
         return bool(value)
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, tuple | list):
         return [_plain(item) for item in value]
-    return str(value)
+    return _text(value)
 
 
 def _number(value: float | int | None) -> float | int | None:
@@ -249,7 +282,7 @@ class DiscoveryReport:
                     "target_type": r.target_type.value,
                     "effect_size_method": r.effect_size_method,
                     "effect_size": _number(r.effect_size),
-                    "n": r.n,
+                    "n": _number(r.n),
                     "missing_rate": _number(r.missing_rate),
                     "test_method": r.test_method,
                     "p_value": _number(r.p_value),
@@ -258,8 +291,8 @@ class DiscoveryReport:
                     else [
                         {
                             "value": _plain(v.value),
-                            "support": v.support,
-                            "target_count": v.target_count,
+                            "support": _number(v.support),
+                            "target_count": _number(v.target_count),
                             "target_rate": _number(v.target_rate),
                             "baseline_rate": _number(v.baseline_rate),
                             "lift": _number(v.lift),
@@ -277,7 +310,7 @@ class DiscoveryReport:
     def _rows(self) -> list[tuple[str, ...]]:
         return [
             (
-                r.feature,
+                _display(str(r.feature)),
                 r.feature_type.value,
                 r.effect_size_method,
                 _fmt(r.effect_size),
@@ -325,12 +358,15 @@ class DiscoveryReport:
         """Inline ``<img>`` of the mosaic, or ``""`` if it can't be drawn."""
         if not self.features:
             return ""
+        # A notebook repr must never fail: any drawing problem falls back to
+        # the summary table alone. Large reports are capped so one cell
+        # display stays small.
         try:
-            fig = self.plot()
-        except ImportError:
+            fig = self.plot(max_features=_HTML_MAX_FEATURES)
+            buffer = io.BytesIO()
+            fig.savefig(buffer, format="png", dpi=100, bbox_inches="tight")
+        except Exception:
             return ""
-        buffer = io.BytesIO()
-        fig.savefig(buffer, format="png", dpi=100, bbox_inches="tight")
         encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
         return (
             f'<img alt="Mosaic of feature lift against {html.escape(self.target)}" '
@@ -338,14 +374,21 @@ class DiscoveryReport:
             f'src="data:image/png;base64,{encoded}">'
         )
 
-    def plot(self) -> Figure:
+    def plot(self, max_features: int | None = None) -> Figure:
         """Render the report as a mosaic and return the matplotlib ``Figure``.
 
-        One row per feature, ordered by strength of association. Within a row,
+        One row per feature, ordered by absolute effect size (the measures
+        differ by feature type, so read the order as a rough guide, not a
+        strict ranking). Within a row,
         each value is a tile whose width is its support and whose colour is
         its lift against the baseline target rate. Continuous features appear as
         quantile bins; a feature with no value-level results (too few rows or
         distinct values to bin) appears as a single neutral tile.
+
+        Args:
+            max_features: Plot only the ``max_features`` features with the
+                largest absolute effect size, and say so in the figure.
+                ``None`` (the default) plots every feature.
 
         The figure is not registered with ``pyplot``: in a notebook, evaluate
         the returned figure to display it; in a script, call
@@ -355,4 +398,4 @@ class DiscoveryReport:
         """
         from signapy.results._plot import plot_mosaic
 
-        return plot_mosaic(self)
+        return plot_mosaic(self, max_features=max_features)
