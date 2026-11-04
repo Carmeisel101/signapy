@@ -541,15 +541,16 @@ def discover(
 ### Out of scope (this slice)
 
 Confirmed non-goals, unchanged from the spec: classifier training,
-multivariate/interaction analysis, automatic feature selection, automatic
-continuous binning, per-bin lift, confidence intervals, multiple-testing
+multivariate/interaction analysis, automatic feature selection, confidence intervals, multiple-testing
 correction, cluster-aware tests, multiclass or continuous targets, and
 stability analysis. See §12 and the "Statistical limitations" section of
 `docs/metrics.md` for the general caveats (causation, sample-size
 sensitivity, clustering, no out-of-sample validation, missing-data
 population shift, multiple comparisons) that apply across every metric in
 this project, not just the new one. (Ordinal discovery, listed as out of
-scope here originally, was implemented next — see §10b.)
+scope here originally, was implemented next — see §10b. Continuous binning
+and per-bin lift, also listed here originally, were implemented later — see
+"Continuous localization uses quantile bins" above.)
 
 ## 10b. Third vertical slice: ordinal discovery (implemented)
 

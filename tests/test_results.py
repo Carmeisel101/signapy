@@ -241,3 +241,56 @@ def test_to_dict_handles_extended_precision_numpy_scalars(dtype):
     label = getattr(np, dtype)(1.5)
     feature = make_feature(values=(make_value(value=label),))
     json.dumps(DiscoveryReport("y", (feature,)).to_dict())
+
+
+def _strict_json(data):
+    return json.loads(json.dumps(data, allow_nan=False))
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        (float("inf"), "inf"),
+        (float("-inf"), "-inf"),
+        (np.float64("inf"), "inf"),
+        (np.float32("-inf"), "-inf"),
+        (float("nan"), "nan"),
+        (np.timedelta64(1, "M"), "1 months"),
+        (np.timedelta64(2, "Y"), "2 years"),
+        ((float("inf"), 1), ["inf", 1]),
+        (complex(1, 2), "(1+2j)"),
+    ],
+)
+def test_to_dict_labels_are_strict_json_for_edge_values(label, expected):
+    feature = make_feature(values=(make_value(value=label),))
+    data = DiscoveryReport("y", (feature,)).to_dict()
+    assert _strict_json(data)["features"][0]["values"][0]["value"] == expected
+
+
+def test_to_dict_numeric_fields_use_null_for_non_finite_floats():
+    value = make_value(lift=float("inf"))
+    feature = make_feature(
+        effect_size=float("nan"),
+        values=(value,),
+        details={"statistic": float("inf"), "dof": 2},
+    )
+    data = _strict_json(DiscoveryReport("y", (feature,)).to_dict())
+    entry = data["features"][0]
+    assert entry["effect_size"] is None
+    assert entry["values"][0]["lift"] is None
+    assert entry["details"] == {"statistic": None, "dof": 2}
+
+
+def test_plot_shows_long_feature_names_in_full():
+    pytest.importorskip("matplotlib")
+    names = ["customer_segment_alpha", "customer_segment_beta"]
+    features = tuple(
+        make_feature(feature=name, values=(make_value(),)) for name in names
+    )
+    texts = [
+        t.get_text().replace("\n", "")
+        for t in DiscoveryReport("y", features).plot().axes[0].texts
+    ]
+    for name in names:
+        assert name in texts
+    assert not any("…" in t for t in texts if t.startswith("customer"))

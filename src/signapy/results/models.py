@@ -21,6 +21,7 @@ import datetime
 import enum
 import html
 import io
+import math
 from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -45,13 +46,18 @@ def _plain(value: Any) -> Any:
     The rule is deliberately closed and type-based, so no label can reach
     ``json.dumps`` unencoded and no arbitrary method is ever called on it:
 
-    - ``None``, ``bool``, ``int``, ``float``, ``str`` pass through (numpy
-      and ``str``/``int`` subclasses are normalised to the builtin);
+    - ``None``, ``bool``, ``int``, ``str`` and *finite* ``float`` pass
+      through (numpy and builtin subclasses are normalised); non-finite
+      floats (``inf``, ``-inf``, ``nan``), which strict JSON cannot
+      represent, become the strings ``"inf"``, ``"-inf"`` and ``"nan"``;
     - enums become their (encoded) ``value``;
     - dates, times, datetimes, ``pd.Timestamp`` and ``np.datetime64`` become
       ISO-8601 strings, keeping sub-second and nanosecond precision;
     - timedeltas (``datetime``, ``pd.Timedelta``, ``np.timedelta64``) become
       ISO-8601 durations;
+    - temporal values that cannot be converted exactly (ambiguous
+      ``np.timedelta64`` month/year units, out-of-range dates) fall back to
+      ``str(value)`` rather than raising;
     - other numpy scalars become the matching builtin (``np.longdouble``
       becomes ``float``);
     - tuples and lists become lists of encoded items;
@@ -65,23 +71,36 @@ def _plain(value: Any) -> Any:
         return str(value)
     if isinstance(value, int):
         return int(value)
-    if isinstance(value, float):
-        return float(value)
+    if isinstance(value, float | np.floating):
+        number = float(value)
+        return number if math.isfinite(number) else str(number)
     if isinstance(value, datetime.datetime | datetime.date | datetime.time):
         return value.isoformat()
     if isinstance(value, np.datetime64):
-        return pd.Timestamp(value).isoformat()
+        try:
+            return pd.Timestamp(value).isoformat()
+        except (ValueError, OverflowError):
+            return str(value)
     if isinstance(value, datetime.timedelta | np.timedelta64):
-        return pd.Timedelta(value).isoformat()
+        try:
+            return pd.Timedelta(value).isoformat()
+        except (ValueError, OverflowError):
+            return str(value)
     if isinstance(value, np.bool_):
         return bool(value)
     if isinstance(value, np.integer):
         return int(value)
-    if isinstance(value, np.floating):
-        return float(value)
     if isinstance(value, tuple | list):
         return [_plain(item) for item in value]
     return str(value)
+
+
+def _number(value: float | int | None) -> float | int | None:
+    """A result number as strict JSON: non-finite floats become ``None``."""
+    if value is None:
+        return None
+    number = _plain(value)
+    return number if isinstance(number, int | float) else None
 
 
 def _fmt(value: float | None) -> str:
@@ -215,21 +234,25 @@ class DiscoveryReport:
         numbers. Category labels are always encoded to JSON-safe data:
         timestamps and dates become ISO-8601 strings, timedeltas ISO-8601
         durations, tuples lists, and other objects (``Decimal``, ``UUID``,
-        ...) their ``str()``. See ``_plain`` for the full rule.
+        ...) their ``str()``. Non-finite floats, which strict JSON cannot
+        represent, become ``None`` in numeric result fields and the strings
+        ``"inf"``/``"-inf"``/``"nan"`` as labels, so the output always
+        passes ``json.dumps(..., allow_nan=False)``. See ``_plain`` for the
+        full rule.
         """
         return {
-            "target": self.target,
+            "target": _plain(self.target),
             "features": [
                 {
-                    "feature": r.feature,
+                    "feature": _plain(r.feature),
                     "feature_type": r.feature_type.value,
                     "target_type": r.target_type.value,
                     "effect_size_method": r.effect_size_method,
-                    "effect_size": r.effect_size,
+                    "effect_size": _number(r.effect_size),
                     "n": r.n,
-                    "missing_rate": r.missing_rate,
+                    "missing_rate": _number(r.missing_rate),
                     "test_method": r.test_method,
-                    "p_value": r.p_value,
+                    "p_value": _number(r.p_value),
                     "values": None
                     if r.values is None
                     else [
@@ -237,13 +260,13 @@ class DiscoveryReport:
                             "value": _plain(v.value),
                             "support": v.support,
                             "target_count": v.target_count,
-                            "target_rate": v.target_rate,
-                            "baseline_rate": v.baseline_rate,
-                            "lift": v.lift,
+                            "target_rate": _number(v.target_rate),
+                            "baseline_rate": _number(v.baseline_rate),
+                            "lift": _number(v.lift),
                         }
                         for v in r.values
                     ],
-                    "details": {k: _plain(d) for k, d in r.details.items()},
+                    "details": {k: _number(d) for k, d in r.details.items()},
                 }
                 for r in self.features
             ],

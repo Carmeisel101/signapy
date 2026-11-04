@@ -13,6 +13,7 @@ rounded corners stay round regardless of how the figure is scaled.
 from __future__ import annotations
 
 import math
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -45,6 +46,32 @@ _ROW_GAP = 0.14
 _TILE_GAP = 0.08
 _HEADER_H = 1.3
 _FOOTER_H = 1.5
+
+
+def _wrap_name(name: str, width: int = 17) -> list[str]:
+    """Split ``name`` into lines of at most ``width`` characters, never dropping text.
+
+    Lines break after underscores and spaces where possible, and inside a
+    token only when that token alone is longer than ``width``, so distinct
+    names always stay distinguishable.
+    """
+    tokens = re.findall(r"[^_ ]+[_ ]?|[_ ]", name)
+    lines: list[str] = []
+    current = ""
+    for token in tokens:
+        while len(token) > width:
+            if current:
+                lines.append(current)
+                current = ""
+            lines.append(token[:width])
+            token = token[width:]
+        if len(current) + len(token) > width:
+            lines.append(current)
+            current = ""
+        current += token
+    if current:
+        lines.append(current)
+    return [line.rstrip() for line in lines] or [name]
 
 
 def _symbol(feature: FeatureResult) -> str:
@@ -158,18 +185,29 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
         mid = y + _ROW_H / 2
 
         box(_MARGIN, y, _LABEL_W, _ROW_H, _PANEL, 0.12)
+        name_lines = _wrap_name(str(feature.feature))
+        if len(name_lines) == 1 and len(name_lines[0]) <= 13:
+            name_size, name_y, name_va = 12, mid - 0.27, "center"
+            effect_y, n_y = mid, mid + 0.25
+        elif len(name_lines) <= 2:
+            name_size, name_y, name_va = 9, y + 0.22, "center"
+            effect_y, n_y = y + 0.57, y + 0.79
+        else:
+            name_size, name_y, name_va = 7.5, y + 0.07, "top"
+            effect_y, n_y = y + 0.7, y + 0.87
         ax.text(
             _MARGIN + 0.18,
-            mid - 0.27,
-            _short(feature.feature, 14),
-            fontsize=12,
+            name_y,
+            "\n".join(name_lines),
+            fontsize=name_size,
             fontweight="bold",
             color=_INK,
-            va="center",
+            va=name_va,
+            linespacing=1.15,
         )
         ax.text(
             _MARGIN + 0.18,
-            mid,
+            effect_y,
             f"{_symbol(feature)} = {feature.effect_size:.2f}",
             fontsize=10,
             color=_MUTED,
@@ -177,7 +215,7 @@ def plot_mosaic(report: DiscoveryReport) -> Figure:
         )
         ax.text(
             _MARGIN + 0.18,
-            mid + 0.25,
+            n_y,
             f"n = {feature.n:,}",
             fontsize=10,
             color=_MUTED,

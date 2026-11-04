@@ -34,7 +34,7 @@ the metric that applies depends on the feature's declared type:
 
 Feature-level metrics summarize a feature *as a whole* against a target.
 Value-level metrics break that summary down by category or level (or,
-eventually, by quantile bin, for continuous features — see
+by quantile bin, for continuous features — see
 [§6a](#6a-continuous-lift-via-quantile-bins)). Neither level replaces the other: a
 feature can show a strong overall association that turns out to be driven
 by one category, or a weak overall association that still hides one
