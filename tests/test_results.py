@@ -128,11 +128,33 @@ def test_report_str_and_html():
     assert "<table>" in report._repr_html_()
 
 
-def test_report_plot():
-    import pytest
+def test_report_plot_renders_mosaic():
+    import io
 
     pytest.importorskip("matplotlib")
-    import matplotlib
 
-    matplotlib.use("Agg")
-    assert _demo_report().plot() is not None
+    fig = _demo_report().plot()
+    texts = [t.get_text() for t in fig.axes[0].texts]
+    assert any("Mosaic" in t for t in texts)
+    assert "c" in texts
+    assert any(t.endswith("×") for t in texts)
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png")
+    assert buffer.getvalue().startswith(b"\x89PNG")
+
+
+def test_report_plot_handles_featureless_rows_and_empty_report():
+    pytest.importorskip("matplotlib")
+
+    continuous = make_feature(
+        feature="age",
+        feature_type=FeatureType.CONTINUOUS,
+        effect_size_method="point_biserial",
+        values=None,
+    )
+    texts = [
+        t.get_text() for t in DiscoveryReport("y", (continuous,)).plot().axes[0].texts
+    ]
+    assert any("no value-level breakdown" in t for t in texts)
+    with pytest.raises(ValueError, match="no features"):
+        DiscoveryReport("y").plot()

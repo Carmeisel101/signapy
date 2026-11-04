@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 from signapy.profiling.types import FeatureType, TargetType
 
 if TYPE_CHECKING:
-    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 
 def _check_count(name: str, value: int) -> None:
@@ -243,29 +243,20 @@ class DiscoveryReport:
             f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
         )
 
-    def plot(self, ax: Axes | None = None) -> Axes:
-        """Plot each feature's absolute effect size as a horizontal bar chart.
+    def plot(self) -> Figure:
+        """Render the report as a mosaic and return the matplotlib ``Figure``.
 
-        Effect sizes come from different measures (Cramér's V, point-biserial,
-        Spearman), so bars are labelled with their method and are best read
-        within a method, not ranked across methods.
+        One row per feature, ordered by strength of association. Within a row,
+        each value is a tile whose width is its support and whose colour is
+        its lift against the baseline target rate. Continuous features have no
+        value-level results yet and appear as a single neutral tile.
+
+        The figure is not registered with ``pyplot``: in a notebook, evaluate
+        the returned figure to display it; in a script, call
+        ``fig.savefig(...)``.
 
         Requires matplotlib (``pip install signapy[plot]``).
         """
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError as error:
-            raise ImportError(
-                "DiscoveryReport.plot() requires matplotlib; "
-                "install it with `pip install signapy[plot]`"
-            ) from error
-        if ax is None:
-            _, ax = plt.subplots()
-        ordered = sorted(self.features, key=lambda r: abs(r.effect_size))
-        ax.barh(
-            [f"{r.feature} ({r.effect_size_method})" for r in ordered],
-            [abs(r.effect_size) for r in ordered],
-        )
-        ax.set_xlabel("|effect size|")
-        ax.set_title(f"Association with {self.target}")
-        return ax
+        from signapy.results._plot import plot_mosaic
+
+        return plot_mosaic(self)
