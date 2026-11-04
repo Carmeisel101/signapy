@@ -133,9 +133,10 @@ def analyze_continuous_feature(
 
     Value-level evidence comes from quantile binning
     (:func:`~signapy.discovery.value.build_binned_value_results`): up to five
-    equal-count bins, each described by support, target rate, baseline rate,
-    and lift. ``FeatureResult.values`` is ``None`` only when the feature
-    cannot be split into at least two bins (too few rows or distinct values).
+    quantile bins of roughly equal size (ties can make them unequal), each
+    described by support, target rate, baseline rate, and lift.
+    ``FeatureResult.values`` is ``None`` only when the feature cannot be split
+    into at least two bins (too few rows or distinct values).
 
     Args:
         name: Column name, used as ``FeatureResult.feature`` and in error

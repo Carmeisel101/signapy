@@ -217,7 +217,8 @@ how strong it is overall.
   scale centered at 1 (white). Red is over-represented in the positive class,
   blue is under-represented. The lift and support percentage are printed in
   the tile when it is wide enough.
-- **Continuous features** appear as up to five equal-count quantile bins,
+- **Continuous features** appear as up to five quantile bins of roughly equal
+  size (heavy ties can make them unequal, so check each tile's width),
   labelled like `(38.4, 44.1]`, read left to right: steadily rising lift is a
   roughly linear relationship, a mid-range peak is non-monotonic.
 - **Label panel** (left): the feature name, its effect size (`V` for Cramér's
@@ -284,7 +285,7 @@ against a binary target** (see [v0.1 scope](#v01-scope) below):
   `values` (support, target rate, baseline rate, lift), in order of first
   appearance. Continuous features get a point-biserial correlation, its
   p-value, group counts/means in `details`, and `values` over up to five
-  equal-count quantile bins (labelled like `(38.4, 44.1]`), showing *where
+  quantile bins of roughly equal size (labelled like `(38.4, 44.1]`), showing *where
   within the range* the signal lives; `values` is `None` only when the
   feature has too few rows or distinct values to bin (see
   [`docs/architecture.md`](docs/architecture.md)).

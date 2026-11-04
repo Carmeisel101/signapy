@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
@@ -72,25 +73,42 @@ def _display(text: str) -> str:
     return "␣" * lead + core + "␣" * trail
 
 
-def _wrap_name(name: str, width: int = 17) -> list[str]:
-    """Split ``name`` into lines of at most ``width`` characters, never dropping text.
+def _text_width(text: str, size: float, bold: bool = False) -> float:
+    """Rendered width of ``text`` in inches, from the font's own metrics."""
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextToPath
 
-    Lines break after underscores and spaces where possible, and inside a
-    token only when that token alone is longer than ``width``, so distinct
+    prop = FontProperties(size=size, weight="bold" if bold else "normal")
+    return TextToPath().get_text_width_height_descent(text, prop, False)[0] / 72
+
+
+def _tex(text: str) -> str:
+    """Escape ``$`` so matplotlib draws user text literally, not as math."""
+    return text.replace("$", "\\$")
+
+
+def _wrap_name(name: str, fits: Callable[[str], bool] | None = None) -> list[str]:
+    """Split ``name`` into lines that each satisfy ``fits``, never dropping text.
+
+    ``fits`` says whether a candidate line is narrow enough (default: at most
+    17 characters). Lines break after underscores and spaces where possible,
+    and inside a token only when that token alone does not fit, so distinct
     names always stay distinguishable. ``name`` should already be passed
     through :func:`_display`.
     """
+    fits = fits or (lambda text: len(text) <= 17)
     tokens = re.findall(r"[^_ ]+[_ ]?|[_ ]", name)
     lines: list[str] = []
     current = ""
     for token in tokens:
-        while len(token) > width:
+        while len(token) > 1 and not fits(token):
+            cut = next((i for i in range(len(token) - 1, 0, -1) if fits(token[:i])), 1)
             if current:
                 lines.append(current)
                 current = ""
-            lines.append(token[:width])
-            token = token[width:]
-        if len(current) + len(token) > width:
+            lines.append(token[:cut])
+            token = token[cut:]
+        if current and not fits(current + token):
             lines.append(current)
             current = ""
         current += token
@@ -115,18 +133,36 @@ class _Layout(NamedTuple):
     top_anchored: bool
 
 
-def _label_layout(lines: list[str]) -> _Layout:
-    """Layout for a name wrapped to ``lines``; rows grow with the line count.
+# Room for text inside the label panel, in inches.
+_LABEL_TEXT_W = _LABEL_W - 0.18 - 0.12
 
-    A long name therefore never overlaps the lines below it or the next row.
+
+def _plan_label(name: str) -> tuple[list[str], _Layout]:
+    """Wrap ``name`` by *rendered* width and choose the matching layout.
+
+    Tries the largest font on one line, then a smaller one on up to two
+    lines, then the smallest on as many lines as needed; rows grow with the
+    line count, so a long name never overlaps the lines below it or the next
+    row, and wide glyphs (``W``, ``M``) cannot overflow the panel.
     """
-    if len(lines) == 1 and len(lines[0]) <= 13:
-        return _Layout(12, 0.205, 0.475, 0.725, _ROW_H, False)
+
+    def wrap(size: float) -> list[str]:
+        return _wrap_name(
+            name, lambda text: _text_width(text, size, bold=True) <= _LABEL_TEXT_W
+        )
+
+    lines = wrap(12)
+    if len(lines) == 1:
+        return lines, _Layout(12, 0.205, 0.475, 0.725, _ROW_H, False)
+    lines = wrap(9)
     if len(lines) <= 2:
-        return _Layout(9, 0.22, 0.57, 0.79, _ROW_H, False)
+        return lines, _Layout(9, 0.22, 0.57, 0.79, _ROW_H, False)
+    lines = wrap(7.5)
     effect = 0.07 + len(lines) * 0.13 + 0.17
     n_offset = effect + 0.2
-    return _Layout(7.5, 0.07, effect, n_offset, max(_ROW_H, n_offset + 0.13), True)
+    return lines, _Layout(
+        7.5, 0.07, effect, n_offset, max(_ROW_H, n_offset + 0.13), True
+    )
 
 
 def _group_by_measure(features: list[FeatureResult]) -> list[FeatureResult]:
@@ -151,8 +187,14 @@ def _symbol(feature: FeatureResult) -> str:
     return _SYMBOLS.get(feature.effect_size_method, "effect")
 
 
-def _short(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: max(limit - 1, 1)] + "…"
+def _fit_label(text: str, size: float, max_width: float, bold: bool = True) -> str:
+    """Cut ``text`` with an ellipsis to at most ``_MAX_LABEL_CHARS`` characters
+    and to ``max_width`` inches at ``size`` points."""
+    if len(text) > _MAX_LABEL_CHARS:
+        text = text[: _MAX_LABEL_CHARS - 1] + "…"
+    while len(text) > 2 and _text_width(text, size, bold) > max_width:
+        text = text[:-2] + "…"
+    return text
 
 
 def _baseline_text(features: list[FeatureResult]) -> str | None:
@@ -202,8 +244,9 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
     )
     cmap = LinearSegmentedColormap.from_list("signapy_lift", _COLORS)
 
-    labels = [_wrap_name(_display(str(f.feature))) for f in features]
-    layouts = [_label_layout(lines) for lines in labels]
+    plans = [_plan_label(_display(str(f.feature))) for f in features]
+    labels = [lines for lines, _ in plans]
+    layouts = [layout for _, layout in plans]
     height = _HEADER_H + sum(row.row_height + _ROW_GAP for row in layouts) + _FOOTER_H
     fig = Figure(figsize=(_WIDTH, height), facecolor="white")
     ax = fig.add_axes((0, 0, 1, 1))
@@ -231,7 +274,7 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
     ax.text(
         _MARGIN + 0.1,
         0.5,
-        f"Mosaic: Feature vs. {_display(str(report.target))} Lift",
+        _tex(f"Mosaic: Feature vs. {_display(str(report.target))} Lift"),
         fontsize=18,
         fontweight="bold",
         color=_INK,
@@ -281,7 +324,7 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
         ax.text(
             _MARGIN + 0.18,
             name_y,
-            "\n".join(name_lines),
+            _tex("\n".join(name_lines)),
             fontsize=name_size,
             fontweight="bold",
             color=_INK,
@@ -334,16 +377,19 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
             luminance = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
             ink = _INK if luminance > 0.55 else "white"
             cx = x + tile / 2
-            name = _short(
-                _display(str(value.value)),
-                min(max(int(tile / 0.085), 2), _MAX_LABEL_CHARS),
-            )
+            shown = _display(str(value.value))
+            room = max(tile - 0.2, 0.1)
+            if tile >= 1.1:
+                size = 11 if _text_width(shown, 11, True) <= room else 9.5
+            else:
+                size = 8.5
+            name = _tex(_fit_label(shown, size, room))
             if tile >= 1.1:
                 ax.text(
                     cx,
                     mid - 0.28,
                     name,
-                    fontsize=11 if len(name) <= 10 else 9.5,
+                    fontsize=size,
                     fontweight="bold",
                     color=ink,
                     ha="center",

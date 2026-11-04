@@ -529,3 +529,70 @@ def test_plot_colorbar_sits_below_the_last_row(names):
     )
     colorbar_top = (1 - fig.axes[1].get_position().y1) * height
     assert rows_bottom <= colorbar_top
+
+
+class _HostileMeta(type):
+    def __getattribute__(cls, name):
+        if name in {"__module__", "__qualname__"}:
+            raise RuntimeError("no metadata for you")
+        return super().__getattribute__(name)
+
+
+class _HostileLabel(metaclass=_HostileMeta):
+    def __str__(self):
+        raise RuntimeError("boom")
+
+    def __hash__(self):
+        return 1
+
+
+def test_to_dict_survives_labels_with_hostile_metaclass():
+    feature = make_feature(values=(make_value(value=_HostileLabel()),))
+    data = _strict_json(DiscoveryReport("y", (feature,)).to_dict())
+    assert data["features"][0]["values"][0]["value"] == "<unserializable>"
+
+
+def test_plot_draws_dollar_signs_literally():
+    pytest.importorskip("matplotlib")
+    names = ["$revenue$", "cost $"]
+    features = tuple(
+        make_feature(feature=n, effect_size=0.5 - i / 10, values=(make_value(),))
+        for i, n in enumerate(names)
+    )
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    fig = DiscoveryReport("y", features).plot()
+    renderer = FigureCanvasAgg(fig).get_renderer()
+    shown = [
+        t.get_text()
+        for t in fig.axes[0].texts
+        if "revenue" in t.get_text() or "cost" in t.get_text()
+    ]
+    assert shown == [r"\$revenue\$", r"cost \$"]
+    for text in fig.axes[0].texts:
+        text.get_window_extent(renderer)  # would raise on a bad math parse
+
+
+@pytest.mark.parametrize("name", ["W" * 13, "M" * 40, "WWWW_MMMM_WWWW_MMMM"])
+def test_plot_wide_glyph_names_stay_inside_label_panel(name):
+    pytest.importorskip("matplotlib")
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    from signapy.results._plot import _LABEL_W, _MARGIN
+
+    fig = _mosaic([name, "other"])
+    renderer = FigureCanvasAgg(fig).get_renderer()
+    ax = fig.axes[0]
+    panel_right_px = ax.transData.transform((_MARGIN + _LABEL_W, 0))[0]
+    name_text = next(
+        t for t in ax.texts if t.get_text().replace("\n", "").startswith(name[:2])
+    )
+    assert name_text.get_window_extent(renderer).x1 <= panel_right_px
+
+
+def test_wrap_name_with_custom_width_predicate_never_drops_text():
+    from signapy.results._plot import _wrap_name
+
+    name = "wide_WWWWWWWWWWWWWWWW_tail"
+    lines = _wrap_name(name, lambda s: sum(3 if c == "W" else 1 for c in s) <= 10)
+    assert "".join(lines) == name

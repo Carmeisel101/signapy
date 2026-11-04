@@ -313,7 +313,8 @@ necessarily a cause of it.
 ### 6a. Continuous lift via quantile bins
 
 For a continuous feature, `discover()` first cuts the feature into up to
-five equal-count (quantile) bins and then applies `categorical_lift` to the
+five quantile bins (roughly equal row counts; ties can make them unequal,
+see each bin's `support`) and then applies `categorical_lift` to the
 bins, so each bin gets support, target rate, baseline rate, and lift just
 like a categorical value. Labels are intervals — `"[10, 20]"` for the first
 bin, `"(20, 30]"` for the rest — in ascending order, so reading the bins
@@ -323,8 +324,8 @@ spikes in the last bin means the signal is concentrated in the tail. The
 point-biserial coefficient alone can't distinguish these.
 
 Bin boundaries are a modeling choice, so SignaPy picks the least
-assumption-laden one (quantiles: equal evidence per bin, robust to
-outliers) and uses fewer bins when rows or distinct values are scarce.
+assumption-laden one (quantiles: roughly equal evidence per bin when there are few ties, robust
+to outliers) and uses fewer bins when rows or distinct values are scarce.
 `values` is `None` only if the feature can't be split into at least two
 bins. Bin count and strategy are not yet configurable. Interpret per-bin
 lift with the same caveats as §6, and remember the bins are exploratory:

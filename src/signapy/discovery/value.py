@@ -94,8 +94,10 @@ def build_binned_value_results(
 ) -> tuple[ValueResult, ...] | None:
     """Value-level evidence for a continuous feature, via quantile bins.
 
-    The feature is cut into up to :data:`MAX_BINS` equal-count bins (fewer
-    when the data has too few rows or too many ties to support that many),
+    The feature is cut into up to :data:`MAX_BINS` quantile bins of roughly
+    equal size (fewer when the data has too few rows or too many ties to
+    support that many; ties can also make the bins unequal, which each bin's
+    ``support`` reports),
     and each bin is described like any other value: support, target rate,
     baseline rate, and lift. Bin labels are interval strings such as
     ``"(38.4, 44.1]"`` (the first bin is closed on the left: ``"[10, 20]"``),

@@ -16,8 +16,8 @@
   `plot(max_features=N)` draws only the strongest `N` features, and the
   notebook view caps at 30. See the README's "Reading the mosaic".
 - Continuous features now get value-level evidence: `discover()` cuts each into
-  up to five equal-count quantile bins (fewer when rows or distinct values are
-  scarce) and reports support, target rate, baseline rate, and lift per bin,
+  up to five quantile bins of roughly equal size (ties in the data can make
+  them unequal, and rows or distinct values that are scarce mean fewer bins) and reports support, target rate, baseline rate, and lift per bin,
   labelled as intervals like `(38.4, 44.1]`. `FeatureResult.values` is `None`
   only when a feature can't be split into at least two bins.
 

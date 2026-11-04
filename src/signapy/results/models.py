@@ -46,7 +46,15 @@ _HTML_MAX_FEATURES = 30
 
 
 def _type_name(value: Any) -> str:
-    return f"<{type(value).__module__}.{type(value).__qualname__}>"
+    """The label's type name; a constant if even that cannot be read.
+
+    A hostile metaclass can make ``__module__`` or ``__qualname__`` raise, so
+    this is the one place that must never depend on user-controlled code.
+    """
+    try:
+        return f"<{type(value).__module__}.{type(value).__qualname__}>"
+    except Exception:
+        return "<unserializable>"
 
 
 def _text(value: Any) -> str:

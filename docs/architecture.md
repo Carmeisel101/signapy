@@ -510,9 +510,11 @@ def discover(
   was originally deferred because the choice (equal-width, quantile,
   domain-specific) is a modeling decision. It is now made once, in
   `discovery.value.build_binned_value_results`, with the least
-  assumption-laden option: up to five **equal-count (quantile) bins**, so
-  every bin carries comparable evidence and outliers can't stretch the
-  edges. Fewer bins are used when there are fewer than ten rows per two bins
+  assumption-laden option: up to five **quantile bins**, which hold roughly
+  equal numbers of rows when the data has few ties, so bins carry comparable
+  evidence and outliers can't stretch the edges. With many tied values the
+  bins can be markedly unequal (`[0]*60 + [1]*20 + [2]*20` gives bins of 60,
+  20 and 20 rows), which is why each bin reports its own `support`. Fewer bins are used when there are fewer than ten rows per two bins
   or when ties collapse edges (`duplicates="drop"`). Labels are interval
   strings (first bin closed, `"[10, 20]"`; the rest `"(20, 30]"`), widened in
   precision until distinct. Each bin then flows through `categorical_lift`
