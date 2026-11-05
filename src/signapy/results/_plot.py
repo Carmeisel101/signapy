@@ -514,7 +514,8 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
         ax.text(
             _MARGIN + 0.1,
             top + _STRIP_LINE_H / 2,
-            "Narrow tiles (too thin to label), strongest lift first:",
+            "Narrow tiles (too thin to label), "
+            "strongest departure from baseline first:",
             fontsize=9,
             fontweight="bold",
             color=_MUTED,

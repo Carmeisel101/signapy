@@ -339,7 +339,8 @@ they are chosen from the same data they describe.
 ## 6b. Reading the mosaic
 
 `DiscoveryReport.plot()` draws the value-level results of §6 and §6a for every
-feature at once: rows are features, tiles are values (or quantile bins), tile
+feature at once: rows are features, tiles are values (or adaptive continuous
+bins), tile
 width is `support`, and tile color is `lift` on a scale centered at 1. It
 adds no statistics of its own, so every caveat in §6 applies: a dark tile is
 an *association* in this sample, and a thin dark tile is strong lift resting
@@ -562,7 +563,7 @@ from just this feature's analysis, per SignaPy's per-feature missing-data
 policy (see [`docs/architecture.md`](architecture.md)).
 
 The continuous result also carries a per-range breakdown:
-`continuous_measurement.values` holds one entry per quantile bin (§6a).
+`continuous_measurement.values` holds one entry per adaptive bin (§6a).
 The point-biserial coefficient and group means tell you the feature *as a
 whole* leans toward the positive class at higher values; the bins show
 whether that holds across the whole range or only above some threshold.

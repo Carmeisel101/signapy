@@ -131,7 +131,7 @@ def analyze_continuous_feature(
     are excluded from this feature's analysis only. ``target`` must already
     be restricted to rows with a non-missing target value.
 
-    Value-level evidence comes from quantile binning
+    Value-level evidence comes from adaptive binning
     (:func:`~signapy.discovery.value.build_binned_value_results`): up to five
     quantile bins of roughly equal size (ties can make them unequal; a feature
     with five or fewer distinct values gets one bin per value, and a dominant
