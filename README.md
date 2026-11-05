@@ -215,8 +215,8 @@ how strong it is overall.
   A thin tile means little data behind it.
 - **Tile color** is the value's lift against the baseline target rate, on a
   scale centered at 1 (white). Red is over-represented in the positive class,
-  blue is under-represented. The lift and support percentage are printed in
-  the tile when it is wide enough.
+  blue is under-represented. Wide tiles print the value, lift, and support
+  percentage; mid-width tiles print the same three in a smaller size.
 - **Continuous features** appear as up to five quantile bins of roughly equal
   size (heavy ties can make them unequal, so check each tile's width),
   labelled like `(38.4, 44.1]` (a feature with five or fewer distinct values
@@ -231,8 +231,11 @@ how strong it is overall.
   comparable, so rows are grouped by measure (the group with the strongest
   feature first) and sorted by absolute effect size within each group. Read
   rankings within a group, not across groups.
-- **Long value labels** are cut to 20 characters with an ellipsis, and tiles
-  too narrow for text are left unlabeled. The full labels are always in
+- **Long value labels** are cut to 20 characters with an ellipsis. The full
+  labels are always in `report.to_dict()`.
+- **Narrow tiles** (under about 0.6 inches) are too thin for text, so they
+  are listed in a strip below the rows as `feature: value lift × · support`,
+  strongest lift first. The strip shows at most 12; the rest are in
   `report.to_dict()`.
 - **Large reports:** `report.plot(max_features=N)` draws only the `N` features
   with the largest absolute effect size and says so in the figure. The

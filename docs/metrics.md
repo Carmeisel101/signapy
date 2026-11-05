@@ -345,9 +345,10 @@ on little data, so check the support before trusting it.
 Rows are grouped by effect-size measure (Cramér's V, Spearman ρ,
 point-biserial r) and sorted by absolute effect size within each group,
 because the three are different statistics and are not strictly comparable
-across groups. Long value labels are cut to 20 characters and tiles too
-narrow for text are unlabeled; use `report.to_dict()` for the full labels and
-numbers. See the README's "Reading the mosaic" for the full list of
+across groups. Long value labels are cut to 20 characters. Tiles too
+narrow for text are listed in a strip under the rows with their lift and
+support (strongest lift first, at most 12), so a thin, saturated tile never
+goes unexplained; use `report.to_dict()` for the full labels and numbers. See the README's "Reading the mosaic" for the full list of
 conventions.
 
 ## 7. How to use the metrics together

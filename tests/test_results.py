@@ -596,3 +596,76 @@ def test_wrap_name_with_custom_width_predicate_never_drops_text():
     name = "wide_WWWWWWWWWWWWWWWW_tail"
     lines = _wrap_name(name, lambda s: sum(3 if c == "W" else 1 for c in s) <= 10)
     assert "".join(lines) == name
+
+
+def _texts(fig):
+    return [t.get_text() for t in fig.axes[0].texts]
+
+
+def test_plot_lists_unlabelled_narrow_tiles_in_a_strip():
+    pytest.importorskip("matplotlib")
+    values = (
+        make_value(value="common", support=9900, lift=0.9),
+        make_value(value="rare_hot", support=60, target_count=40, lift=3.4),
+        make_value(value="rare_mild", support=40, target_count=20, lift=1.1),
+    )
+    fig = DiscoveryReport("y", (make_feature(values=values),)).plot()
+    texts = _texts(fig)
+    assert any("Narrow tiles" in t for t in texts)
+    strip = next(t for t in texts if "rare_hot" in t)
+    assert "3.40×" in strip and "0.6%" in strip
+    assert strip.index("rare_hot") < strip.index("rare_mild")
+
+
+def test_plot_has_no_strip_when_every_tile_is_labelled():
+    pytest.importorskip("matplotlib")
+    values = (
+        make_value(value="a", support=50, target_count=20),
+        make_value(value="b", support=50, target_count=20),
+    )
+    fig = DiscoveryReport("y", (make_feature(values=values),)).plot()
+    assert not any("Narrow tiles" in t for t in _texts(fig))
+
+
+def test_plot_strip_is_capped_and_says_how_many_were_left_out():
+    pytest.importorskip("matplotlib")
+    from signapy.results._plot import _STRIP_MAX_ENTRIES
+
+    values = (
+        make_value(value="big", support=10000),
+        *(
+            make_value(value=f"r{i}", support=1, target_count=0, lift=1.5)
+            for i in range(30)
+        ),
+    )
+    fig = DiscoveryReport("y", (make_feature(values=values),)).plot()
+    texts = _texts(fig)
+    shown = sum(f"r{i}:" in t or f": r{i} " in t for t in texts for i in range(30))
+    assert shown <= _STRIP_MAX_ENTRIES
+    assert any(f"+{30 - _STRIP_MAX_ENTRIES} more" in t for t in texts)
+
+
+def test_plot_mid_width_tiles_show_lift_and_support():
+    pytest.importorskip("matplotlib")
+    values = (
+        make_value(value="a", support=92, target_count=30, lift=0.8),
+        make_value(value="b", support=8, target_count=6, lift=2.0),
+    )
+    fig = DiscoveryReport("y", (make_feature(values=values),)).plot()
+    texts = _texts(fig)
+    assert "2.00×" in texts and "8.0%" in texts
+
+
+def test_plot_strip_keeps_colorbar_below_everything():
+    pytest.importorskip("matplotlib")
+    values = (
+        make_value(value="big", support=10000),
+        *(make_value(value=f"r{i}", support=1, target_count=0) for i in range(5)),
+    )
+    fig = DiscoveryReport("y", (make_feature(values=values),)).plot()
+    height = fig.get_figheight()
+    colorbar_top = (1 - fig.axes[1].get_position().y1) * height
+    strip_bottom = max(
+        t.get_position()[1] for t in fig.axes[0].texts if "r0" in t.get_text()
+    )
+    assert strip_bottom < colorbar_top

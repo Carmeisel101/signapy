@@ -5,7 +5,8 @@ within each group. Within a row, one rounded tile per value: tile *width* is
 the value's support (its share of the feature's rows) and tile *colour* is its
 lift against the baseline target rate. A feature's signal therefore reads at
 a glance as saturated tiles, and thin, saturated tiles flag strong lift
-resting on little data.
+resting on little data. Tiles too narrow for text are listed, with their lift
+and support, in a strip under the rows.
 
 Drawing happens in a coordinate system where one data unit is one inch, so
 rounded corners stay round regardless of how the figure is scaled.
@@ -21,7 +22,7 @@ from typing import TYPE_CHECKING, NamedTuple
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
-    from signapy.results.models import DiscoveryReport, FeatureResult
+    from signapy.results.models import DiscoveryReport, FeatureResult, ValueResult
 
 # Short symbol for each effect-size method, shown beside the feature name.
 _SYMBOLS = {"cramers_v": "V", "point_biserial": "r", "spearman_rho": "ρ"}
@@ -52,6 +53,12 @@ _ROW_GAP = 0.14
 _TILE_GAP = 0.08
 _HEADER_H = 1.3
 _FOOTER_H = 1.5
+
+# Tiles narrower than this carry no text; they are listed in a strip below
+# the rows instead, strongest lift first.
+_LABEL_MIN_TILE = 0.6
+_STRIP_MAX_ENTRIES = 12
+_STRIP_LINE_H = 0.22
 
 
 def _display(text: str) -> str:
@@ -198,6 +205,64 @@ def _fit_label(text: str, size: float, max_width: float, bold: bool = True) -> s
     return text
 
 
+def _tile_widths(
+    feature: FeatureResult, tile_w: float
+) -> list[tuple[ValueResult, float, float, float]]:
+    """``(value, share, slot, drawn width)`` for each tile of ``feature``'s row.
+
+    The drawn width is the tile's slot minus a gap that shrinks for tiny
+    slots, so tile width stays proportional to support without overlapping.
+    """
+    values = feature.values or ()
+    total = sum(v.support for v in values)
+    if total == 0:
+        return []
+    out = []
+    for value in values:
+        share = value.support / total
+        slot = share * tile_w
+        out.append((value, share, slot, slot - min(_TILE_GAP, slot * 0.25)))
+    return out
+
+
+def _narrow_entries(
+    features: list[FeatureResult], tile_w: float
+) -> tuple[list[str], int]:
+    """Legend entries for unlabelled tiles, strongest lift first, plus how many
+    more were left out by the cap."""
+    found: list[tuple[float, str]] = []
+    for feature in features:
+        name = _fit_label(_display(str(feature.feature)), 9, 2.2, bold=False)
+        for value, share, _, tile in _tile_widths(feature, tile_w):
+            if tile >= _LABEL_MIN_TILE:
+                continue
+            label = _fit_label(_display(str(value.value)), 9, 2.2, bold=False)
+            strength = abs(value.lift - 1.0) if math.isfinite(value.lift) else math.inf
+            found.append((strength, f"{name}: {label} {value.lift:.2f}× · {share:.1%}"))
+    found.sort(key=lambda item: -item[0])
+    shown = [text for _, text in found[:_STRIP_MAX_ENTRIES]]
+    return shown, len(found) - len(shown)
+
+
+def _strip_lines(entries: list[str], more: int) -> list[str]:
+    """Pack ``entries`` into lines that fit the figure width."""
+    room = _WIDTH - 2 * _MARGIN - 0.3
+    lines: list[str] = []
+    current = ""
+    for entry in entries:
+        candidate = f"{current}   |   {entry}" if current else entry
+        if current and _text_width(candidate, 9) > room:
+            lines.append(current)
+            current = entry
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    if more:
+        lines.append(f"+{more} more narrow tiles (see report.to_dict())")
+    return lines
+
+
 def _baseline_text(features: list[FeatureResult]) -> str | None:
     rates = [v.baseline_rate for f in features for v in f.values or ()]
     if not rates:
@@ -248,7 +313,12 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
     plans = [_plan_label(_display(str(f.feature))) for f in features]
     labels = [lines for lines, _ in plans]
     layouts = [layout for _, layout in plans]
-    height = _HEADER_H + sum(row.row_height + _ROW_GAP for row in layouts) + _FOOTER_H
+    tile_x0 = _MARGIN + _LABEL_W + 0.15
+    tile_w = _WIDTH - _MARGIN - tile_x0
+    strip = _strip_lines(*_narrow_entries(features, tile_w))
+    strip_h = 0.15 + _STRIP_LINE_H * (len(strip) + 1) if strip else 0.0
+    rows_h = sum(row.row_height + _ROW_GAP for row in layouts)
+    height = _HEADER_H + rows_h + strip_h + _FOOTER_H
     fig = Figure(figsize=(_WIDTH, height), facecolor="white")
     ax = fig.add_axes((0, 0, 1, 1))
     ax.set_xlim(0, _WIDTH)
@@ -312,9 +382,6 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
             va="center",
         )
 
-    tile_x0 = _MARGIN + _LABEL_W + 0.15
-    tile_w = _WIDTH - _MARGIN - tile_x0
-
     y = _HEADER_H
     for feature, name_lines, layout in zip(features, labels, layouts, strict=True):
         name_size, name_off, effect_off, n_off, row_h, top_anchored = layout
@@ -349,8 +416,8 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
             va="center",
         )
 
-        total = sum(v.support for v in feature.values or ())
-        if total == 0:
+        tiles = _tile_widths(feature, tile_w)
+        if not tiles:
             box(tile_x0, y, tile_w, row_h, _NEUTRAL, 0.12)
             ax.text(
                 tile_x0 + tile_w / 2,
@@ -366,13 +433,7 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
             continue
 
         x = tile_x0
-        for value in feature.values:
-            width = value.support / total * tile_w
-            # Keep every tile inside its own allocation so tile width stays
-            # proportional to support: tiny tiles get a proportionally
-            # smaller gap instead of a minimum width that would overlap the
-            # next tile.
-            tile = width - min(_TILE_GAP, width * 0.25)
+        for value, share, slot, tile in tiles:
             rgba = cmap(norm(min(max(value.lift, norm.vmin), norm.vmax)))
             box(x, y, tile, row_h, rgba, 0.1)
             luminance = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
@@ -409,16 +470,16 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
                 ax.text(
                     cx,
                     mid + 0.27,
-                    f"({value.support / total:.1%})",
+                    f"({share:.1%})",
                     fontsize=9.5,
                     color=ink,
                     ha="center",
                     va="center",
                 )
-            elif tile >= 0.6:
+            elif tile >= _LABEL_MIN_TILE:
                 ax.text(
                     cx,
-                    mid - 0.12,
+                    mid - 0.24,
                     name,
                     fontsize=8.5,
                     fontweight="bold",
@@ -428,15 +489,45 @@ def plot_mosaic(report: DiscoveryReport, max_features: int | None = None) -> Fig
                 )
                 ax.text(
                     cx,
-                    mid + 0.14,
+                    mid,
                     f"{value.lift:.2f}×",
                     fontsize=8.5,
                     color=ink,
                     ha="center",
                     va="center",
                 )
-            x += width
+                ax.text(
+                    cx,
+                    mid + 0.22,
+                    f"{share:.1%}",
+                    fontsize=8,
+                    color=ink,
+                    ha="center",
+                    va="center",
+                )
+            x += slot
         y += row_h + _ROW_GAP
+
+    if strip:
+        top = y + 0.1
+        ax.text(
+            _MARGIN + 0.1,
+            top + _STRIP_LINE_H / 2,
+            "Narrow tiles (too thin to label), strongest lift first:",
+            fontsize=9,
+            fontweight="bold",
+            color=_MUTED,
+            va="center",
+        )
+        for i, line in enumerate(strip, start=1):
+            ax.text(
+                _MARGIN + 0.1,
+                top + _STRIP_LINE_H * (i + 0.5),
+                _tex(line),
+                fontsize=9,
+                color=_INK,
+                va="center",
+            )
 
     # Colour bar.
     bar_w = 6.5
