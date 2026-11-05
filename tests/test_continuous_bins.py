@@ -98,6 +98,20 @@ class TestBinnedValueResults:
         assert bins[-1] == ("100", 60)
         assert sum(support for _, support in bins) == 80
 
+    def test_dominant_value_is_isolated_even_when_quantile_edges_survive(self):
+        # Five quantile edges stay distinct here, yet 30 would share a bin.
+        x = [*range(30), *[30.0] * 21, *range(31, 80)]
+        bins = self._bins(x)
+        assert ("30", 21) in bins
+        assert sum(support for _, support in bins) == len(x)
+
+    def test_nearby_values_never_share_a_label(self):
+        x = [0.9996] + [1.0004] * 90 + list(range(2, 11))
+        bins = self._bins(x)
+        labels = [label for label, _ in bins]
+        assert len(set(labels)) == len(labels)
+        assert sum(support for _, support in bins) == len(x)
+
     def test_tiny_remainder_is_one_bin_not_many(self):
         bins = self._bins([0.0] * 95 + [1.0, 2, 3, 4, 5, 6, 7])
         assert bins == [("0", 95), ("[1, 7]", 7)]
