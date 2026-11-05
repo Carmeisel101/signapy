@@ -19,7 +19,7 @@ Modules:
   (:func:`~signapy.discovery.value.build_value_results`). Reused by both
   the categorical and ordinal analyzers (ordinal reorders the result to
   its declared category order); for continuous features
-  the feature is first cut into quantile bins
+  the feature is first cut into adaptive continuous bins
   (:func:`~signapy.discovery.value.build_binned_value_results`) and each bin
   is a value (see ``docs/architecture.md``).
 
@@ -177,7 +177,8 @@ def discover(
     - **Continuous** features get a point-biserial correlation and its
       p-value, group counts and means in ``details``,
       and per-bin support/target rate/baseline rate/lift over up to five
-      quantile bins, labelled as intervals, in ascending order
+      bins, labelled as intervals or isolated repeated values, in ascending
+      order
       (``FeatureResult.values`` is ``None`` only if the feature can't be split
       into at least two bins).
     - **Ordinal** features get a Spearman rank correlation and its p-value,

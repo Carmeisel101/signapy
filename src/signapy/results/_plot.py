@@ -55,7 +55,7 @@ _HEADER_H = 1.3
 _FOOTER_H = 1.5
 
 # Tiles narrower than this carry no text; they are listed in a strip below
-# the rows instead, strongest lift first.
+# the rows instead, strongest departure from baseline first.
 _LABEL_MIN_TILE = 0.6
 _STRIP_MAX_ENTRIES = 12
 _STRIP_LINE_H = 0.22
@@ -228,8 +228,8 @@ def _tile_widths(
 def _narrow_entries(
     features: list[FeatureResult], tile_w: float
 ) -> tuple[list[str], int]:
-    """Legend entries for unlabelled tiles, strongest lift first, plus how many
-    more were left out by the cap."""
+    """Legend entries for unlabelled tiles, strongest departure from baseline
+    first, plus how many more were left out by the cap."""
     found: list[tuple[float, str]] = []
     for feature in features:
         name = _fit_label(_display(str(feature.feature)), 9, 2.2, bold=False)
@@ -238,7 +238,8 @@ def _narrow_entries(
                 continue
             label = _fit_label(_display(str(value.value)), 9, 2.2, bold=False)
             strength = abs(value.lift - 1.0) if math.isfinite(value.lift) else math.inf
-            found.append((strength, f"{name}: {label} {value.lift:.2f}× · {share:.1%}"))
+            entry = f"{name}: {label} {value.lift:.2f}× · {share:.1%}"
+            found.append((strength, entry))
     found.sort(key=lambda item: -item[0])
     shown = [text for _, text in found[:_STRIP_MAX_ENTRIES]]
     return shown, len(found) - len(shown)

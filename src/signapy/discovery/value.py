@@ -4,7 +4,7 @@ This module contains no statistics of its own. It calls
 :func:`signapy.metrics.lift.categorical_lift` and renames its fields to the
 :class:`~signapy.results.ValueResult` vocabulary used across SignaPy's
 discovery results. Continuous features are localized by first cutting them
-into quantile bins (:func:`build_binned_value_results`) and then treating
+into adaptive bins (:func:`build_binned_value_results`) and then treating
 each bin as a value.
 """
 
@@ -65,7 +65,7 @@ def build_value_results(
     )
 
 
-# Continuous localization cuts a feature into at most this many quantile bins,
+# Continuous localization cuts a feature into at most this many bins,
 # and never into bins averaging fewer than _MIN_ROWS_PER_BIN rows.
 MAX_BINS = 5
 _MIN_ROWS_PER_BIN = 5
@@ -200,11 +200,12 @@ def build_binned_value_results(
     *,
     positive_class: Hashable,
 ) -> tuple[ValueResult, ...] | None:
-    """Value-level evidence for a continuous feature, via quantile bins.
+    """Value-level evidence for a continuous feature, via adaptive binning.
 
-    The feature is cut into up to :data:`MAX_BINS` quantile bins of roughly
-    equal size (ties can make them unequal, which each bin's ``support``
-    reports). When ties collapse bins, the cut is retried with fewer bins; a
+    The feature is cut into up to :data:`MAX_BINS` bins, using quantiles of
+    roughly equal size for ordinary continuous data (ties can make them
+    unequal, which each bin's ``support`` reports). When ties collapse bins,
+    the cut is retried with fewer bins; a
     feature with at most :data:`MAX_BINS` distinct values gets one bin per
     value, labelled by the value itself (``"0"``, ``"1"``). A single value
     that holds more rows than one bin would (the zeros in a zero-inflated

@@ -30,12 +30,12 @@ the metric that applies depends on the feature's declared type:
 | Feature-level | Ordinal | `spearman_rho` | Do higher feature levels go with the positive or negative class, and how strongly? |
 | Value-level | Categorical | `categorical_lift` | Which individual categories are above or below baseline? |
 | Value-level | Ordinal | `categorical_lift` (reordered) | Which individual *levels* are above or below baseline, read in order? |
-| Value-level | Continuous | `categorical_lift` over quantile bins | Which *ranges* of values are above or below baseline? |
+| Value-level | Continuous | `categorical_lift` over adaptive bins | Which *ranges or repeated values* are above or below baseline? |
 
 Feature-level metrics summarize a feature *as a whole* against a target.
 Value-level metrics break that summary down by category or level (or,
-by quantile bin, for continuous features — see
-[§6a](#6a-continuous-lift-via-quantile-bins)). Neither level replaces the other: a
+by adaptive bin, for continuous features — see
+[§6a](#6a-continuous-lift-via-adaptive-bins)). Neither level replaces the other: a
 feature can show a strong overall association that turns out to be driven
 by one category, or a weak overall association that still hides one
 category worth investigating. Read feature-level and value-level evidence
@@ -189,7 +189,7 @@ you want to know both the direction/strength of a linear relationship
   enough rows, a negligible `coefficient` can still be "significant."
 - `mean_difference` and `coefficient` describe association, not causation.
 - `point_biserial` assumes a linear pattern; the per-bin lift in
-  [§6a](#6a-continuous-lift-via-quantile-bins) shows where in the range the
+  [§6a](#6a-continuous-lift-via-adaptive-bins) shows where in the range the
   signal sits.
 
 `signapy`'s `point_biserial()` uses `scipy.stats.pointbiserialr` directly
@@ -310,7 +310,7 @@ p-value, no confidence interval) and does not imply causation — a category
 with high lift is *associated* with the positive class in this sample, not
 necessarily a cause of it.
 
-### 6a. Continuous lift via quantile bins
+### 6a. Continuous lift via adaptive bins
 
 For a continuous feature, `discover()` first cuts the feature into up to
 five quantile bins (roughly equal row counts; ties can make them unequal,
@@ -350,9 +350,10 @@ point-biserial r) and sorted by absolute effect size within each group,
 because the three are different statistics and are not strictly comparable
 across groups. Long value labels are cut to 20 characters. Tiles too
 narrow for text are listed in a strip under the rows with their lift and
-support (strongest lift first, at most 12), so a thin, saturated tile never
-goes unexplained; use `report.to_dict()` for the full labels and numbers. See the README's "Reading the mosaic" for the full list of
-conventions.
+support (strongest departure from baseline first, at most 12), so a thin,
+saturated tile never goes unexplained; use `report.to_dict()` for the full
+labels and numbers. See the README's "Reading the mosaic" for the full list
+of conventions.
 
 ## 7. How to use the metrics together
 
@@ -366,12 +367,12 @@ For a **categorical** feature:
 
 For a **continuous** feature, the first step is `point_biserial`, which
 combines a directional effect size and a p-value; `discover()` then adds
-per-bin lift (see [§6a](#6a-continuous-lift-via-quantile-bins)):
+per-bin lift (see [§6a](#6a-continuous-lift-via-adaptive-bins)):
 
 1. **`point_biserial`** — is there a linear association, how strong is it,
    which direction does it point, and what's the size of the gap between
    groups in real units (`mean_difference`)?
-2. **`categorical_lift` over quantile bins** — which ranges of the feature
+2. **`categorical_lift` over adaptive bins** — which ranges or repeated values
    are pulling the positive rate up or down, and is the pattern linear?
 
 For an **ordinal** feature, use both — `spearman_rho` alone can miss a real

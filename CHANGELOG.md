@@ -17,7 +17,8 @@
   notebook view caps at 30. See the README's "Reading the mosaic".
 - Every tile now carries its evidence: mid-width tiles show lift and support
   percentage, and tiles too narrow for text are listed in a strip under the
-  rows (`feature: value lift × · support`, strongest lift first, at most 12).
+  rows (`feature: value lift × · support`, strongest departure from baseline
+  first, at most 12).
 - Continuous features now get value-level evidence: `discover()` cuts each into
   up to five quantile bins of roughly equal size (ties in the data can make
   them unequal, and scarce rows mean fewer bins) and reports support, target
