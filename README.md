@@ -219,7 +219,8 @@ how strong it is overall.
   the tile when it is wide enough.
 - **Continuous features** appear as up to five quantile bins of roughly equal
   size (heavy ties can make them unequal, so check each tile's width),
-  labelled like `(38.4, 44.1]`, read left to right: steadily rising lift is a
+  labelled like `(38.4, 44.1]` (a feature with five or fewer distinct values
+  gets one tile per value instead), read left to right: steadily rising lift is a
   roughly linear relationship, a mid-range peak is non-monotonic.
 - **Label panel** (left): the feature name, its effect size (`V` for Cramér's
   V, `ρ` for Spearman, `r` for point-biserial), and its `n`. Long names wrap
@@ -287,7 +288,7 @@ against a binary target** (see [v0.1 scope](#v01-scope) below):
   p-value, group counts/means in `details`, and `values` over up to five
   quantile bins of roughly equal size (labelled like `(38.4, 44.1]`), showing *where
   within the range* the signal lives; `values` is `None` only when the
-  feature has too few rows or distinct values to bin (see
+  feature has too few rows or is constant (see
   [`docs/architecture.md`](docs/architecture.md)).
   Ordinal features get a Spearman rank correlation, its p-value, and the
   same per-level `values` as categorical — but in the feature's *declared*

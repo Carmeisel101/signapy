@@ -50,8 +50,22 @@ class TestBinnedValueResults:
         assert top.target_rate == pytest.approx(in_top["y"].mean())
         assert top.baseline_rate == pytest.approx(df["y"].mean())
 
-    def test_ties_reduce_bin_count_instead_of_failing(self):
+    def test_few_distinct_values_get_one_bin_each(self):
         x = [0] * 60 + [1] * 20 + [2] * 20
+        y = [False, True] * 50
+        values = build_binned_value_results(x, y, positive_class=True)
+        assert [v.value for v in values] == ["0", "1", "2"]
+        assert [v.support for v in values] == [60, 20, 20]
+
+    def test_two_distinct_values_give_two_bins(self):
+        x = [0] * 50 + [1] * 50
+        y = [False, True] * 50
+        values = build_binned_value_results(x, y, positive_class=True)
+        assert [v.support for v in values] == [50, 50]
+
+    def test_heavy_ties_retry_with_fewer_bins(self):
+        # 6 distinct values, so no per-value bins; 5 quantile bins collapse.
+        x = [0.0] * 40 + [1.0] * 20 + [2.0] * 20 + [3.0] * 10 + [4.0] * 5 + [5.0] * 5
         y = [False, True] * 50
         values = build_binned_value_results(x, y, positive_class=True)
         assert 2 <= len(values) < MAX_BINS

@@ -71,19 +71,45 @@ MAX_BINS = 5
 _MIN_ROWS_PER_BIN = 5
 
 
+def _marks(numbers: npt.NDArray[np.float64]) -> list[str]:
+    """Distinct text for each of the (distinct, sorted) ``numbers``."""
+    # Widen the precision until every mark is distinct, so two bins can
+    # never collapse into one value when numbers are close together.
+    for digits in (3, 4, 6, 17):
+        marks = [f"{number:.{digits}g}" for number in numbers]
+        if len(set(marks)) == len(marks):
+            break
+    return marks
+
+
 def _bin_labels(edges: npt.NDArray[np.float64]) -> list[str]:
     """Interval labels for consecutive ``edges``; the first bin is closed."""
     if len(edges) < 2:
         return []
-    # Widen the precision until every label is distinct, so two bins can
-    # never collapse into one value when edges are close together.
-    for digits in (3, 4, 6, 17):
-        marks = [f"{edge:.{digits}g}" for edge in edges]
-        if len(set(marks)) == len(marks):
-            break
+    marks = _marks(edges)
     labels = [f"({low}, {high}]" for low, high in itertools.pairwise(marks)]
     labels[0] = "[" + labels[0][1:]
     return labels
+
+
+def _quantile_bins(
+    values: pd.Series, n_bins: int
+) -> tuple[npt.NDArray[np.intp], list[str]]:
+    """Cut ``values`` into up to ``n_bins`` quantile bins.
+
+    When ties collapse duplicate edges, retries with fewer bins so a full set
+    of ``k`` distinct bins is preferred; if no ``k`` survives intact, the
+    attempt that kept the most bins is used.
+    """
+    best: tuple[npt.NDArray[np.intp], list[str]] = (np.empty(0, dtype=np.intp), [])
+    for k in range(n_bins, 1, -1):
+        codes, edges = pd.qcut(values, k, labels=False, retbins=True, duplicates="drop")
+        labels = _bin_labels(np.asarray(edges, dtype=float))
+        if len(labels) == k:
+            return codes.to_numpy(), labels
+        if len(labels) > len(best[1]):
+            best = (codes.to_numpy(), labels)
+    return best
 
 
 def build_binned_value_results(
@@ -95,13 +121,14 @@ def build_binned_value_results(
     """Value-level evidence for a continuous feature, via quantile bins.
 
     The feature is cut into up to :data:`MAX_BINS` quantile bins of roughly
-    equal size (fewer when the data has too few rows or too many ties to
-    support that many; ties can also make the bins unequal, which each bin's
-    ``support`` reports),
-    and each bin is described like any other value: support, target rate,
-    baseline rate, and lift. Bin labels are interval strings such as
-    ``"(38.4, 44.1]"`` (the first bin is closed on the left: ``"[10, 20]"``),
-    and results are returned in ascending bin order.
+    equal size (ties can make them unequal, which each bin's ``support``
+    reports). When ties collapse bins, the cut is retried with fewer bins; a
+    feature with at most :data:`MAX_BINS` distinct values gets one bin per
+    value, labelled by the value itself (``"0"``, ``"1"``). Each bin is
+    described like any other value: support, target rate, baseline rate, and
+    lift. Otherwise bin labels are interval strings such as ``"(38.4, 44.1]"``
+    (the first bin is closed on the left: ``"[10, 20]"``), and results are
+    returned in ascending bin order.
 
     Args:
         feature: Finite numeric values, one per row, with no missing values
@@ -112,7 +139,7 @@ def build_binned_value_results(
     Returns:
         One :class:`~signapy.results.ValueResult` per bin, or ``None`` when
         the feature cannot be split into at least two bins (too few rows, or
-        too few distinct values). ``None`` means "not performed", never an
+        a constant feature). ``None`` means "not performed", never an
         empty result.
     """
     values = pd.Series(feature).astype(float).reset_index(drop=True)
@@ -121,14 +148,18 @@ def build_binned_value_results(
     n_bins = min(MAX_BINS, len(values) // _MIN_ROWS_PER_BIN)
     if n_bins < 2:
         return None
-    codes, edges = pd.qcut(
-        values, n_bins, labels=False, retbins=True, duplicates="drop"
-    )
-    labels = _bin_labels(np.asarray(edges, dtype=float))
-    if len(labels) < 2:
+    uniques, inverse = np.unique(values.to_numpy(), return_inverse=True)
+    if len(uniques) < 2:
         return None
+    if len(uniques) <= MAX_BINS:
+        # Few distinct values: each one is its own bin, so ties can't hide it.
+        codes, labels = inverse.reshape(-1), _marks(uniques)
+    else:
+        codes, labels = _quantile_bins(values, n_bins)
+        if len(labels) < 2:
+            return None
 
-    bin_labels = np.asarray(labels, dtype=object)[codes.to_numpy()]
+    bin_labels = np.asarray(labels, dtype=object)[codes]
     by_label = {
         result.value: result
         for result in build_value_results(

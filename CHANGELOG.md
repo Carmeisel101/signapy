@@ -17,9 +17,12 @@
   notebook view caps at 30. See the README's "Reading the mosaic".
 - Continuous features now get value-level evidence: `discover()` cuts each into
   up to five quantile bins of roughly equal size (ties in the data can make
-  them unequal, and rows or distinct values that are scarce mean fewer bins) and reports support, target rate, baseline rate, and lift per bin,
-  labelled as intervals like `(38.4, 44.1]`. `FeatureResult.values` is `None`
-  only when a feature can't be split into at least two bins.
+  them unequal, and scarce rows mean fewer bins) and reports support, target
+  rate, baseline rate, and lift per bin, labelled as intervals like
+  `(38.4, 44.1]`. When ties collapse bins, the cut is retried with fewer bins,
+  and a feature with five or fewer distinct values gets one bin per value
+  (labelled `0`, `1`, ...). `FeatureResult.values` is `None` only when a
+  feature has too few rows or is constant.
 
 ## 0.1.0a2 — Polars input support
 
