@@ -112,6 +112,71 @@ def _quantile_bins(
     return best
 
 
+def _segment_bins(
+    segment: npt.NDArray[np.float64], n_bins: int, max_distinct: int
+) -> tuple[npt.NDArray[np.object_], list[str]]:
+    """Label every row of ``segment`` with its bin; also the labels in order.
+
+    A segment with at most ``max_distinct`` distinct values gets one bin per
+    value; otherwise it is cut into up to ``n_bins`` quantile bins, falling
+    back to a single bin when ties leave no usable cut.
+    """
+    uniques, inverse = np.unique(segment, return_inverse=True)
+    if len(uniques) <= max_distinct:
+        labels = _marks(uniques)
+        return np.asarray(labels, dtype=object)[inverse.reshape(-1)], labels
+    if n_bins >= 2:
+        codes, labels = _quantile_bins(pd.Series(segment), n_bins)
+        if len(labels) >= 2:
+            return np.asarray(labels, dtype=object)[codes], labels
+    low, high = _marks(np.array([uniques[0], uniques[-1]]))
+    label = f"[{low}, {high}]"
+    return np.full(len(segment), label, dtype=object), [label]
+
+
+def _spike_bins(
+    values: npt.NDArray[np.float64], n_bins: int
+) -> tuple[npt.NDArray[np.object_], list[str]] | None:
+    """Bins around a single dominant value, or ``None`` when there isn't one.
+
+    A value holding more rows than one quantile bin would (such as the zeros
+    in a zero-inflated column) cannot be split by quantiles. It becomes its
+    own bin, labelled by the value, and the rows below and above it are
+    binned separately so no interval overlaps the spike.
+    """
+    uniques, counts = np.unique(values, return_counts=True)
+    top = int(np.argmax(counts))
+    if counts[top] * n_bins <= len(values):
+        return None
+    spike = uniques[top]
+    sides = [values < spike, values > spike]
+    sides = [side for side in sides if side.any()]
+    rest = int(sum(side.sum() for side in sides))
+
+    budget = max(n_bins - 1, 1)
+    if len(sides) == 2 and budget >= 2:
+        low_share = sides[0].sum() / rest
+        low = min(max(round(budget * low_share), 1), budget - 1)
+        shares = [low, budget - low]
+    else:
+        shares = [budget] * len(sides)
+
+    out = np.empty(len(values), dtype=object)
+    below_order: list[str] = []
+    above_order: list[str] = []
+    for side, k in zip(sides, shares, strict=True):
+        k = max(1, min(k, int(side.sum()) // _MIN_ROWS_PER_BIN))
+        side_labels, order = _segment_bins(values[side], k, k)
+        out[side] = side_labels
+        if values[side][0] < spike:
+            below_order = order
+        else:
+            above_order = order
+    spike_label = _marks(np.array([spike]))[0]
+    out[values == spike] = spike_label
+    return out, [*below_order, spike_label, *above_order]
+
+
 def build_binned_value_results(
     feature: npt.ArrayLike | pd.Series,
     target: npt.ArrayLike | pd.Series,
@@ -124,7 +189,10 @@ def build_binned_value_results(
     equal size (ties can make them unequal, which each bin's ``support``
     reports). When ties collapse bins, the cut is retried with fewer bins; a
     feature with at most :data:`MAX_BINS` distinct values gets one bin per
-    value, labelled by the value itself (``"0"``, ``"1"``). Each bin is
+    value, labelled by the value itself (``"0"``, ``"1"``). A single value
+    that holds more rows than one bin would (the zeros in a zero-inflated
+    column) becomes its own bin, with the rows below and above it binned
+    separately, so intervals never overlap it. Each bin is
     described like any other value: support, target rate, baseline rate, and
     lift. Otherwise bin labels are interval strings such as ``"(38.4, 44.1]"``
     (the first bin is closed on the left: ``"[10, 20]"``), and results are
@@ -148,18 +216,19 @@ def build_binned_value_results(
     n_bins = min(MAX_BINS, len(values) // _MIN_ROWS_PER_BIN)
     if n_bins < 2:
         return None
-    uniques, inverse = np.unique(values.to_numpy(), return_inverse=True)
-    if len(uniques) < 2:
+    array = values.to_numpy()
+    if len(np.unique(array)) < 2:
         return None
-    if len(uniques) <= MAX_BINS:
-        # Few distinct values: each one is its own bin, so ties can't hide it.
-        codes, labels = inverse.reshape(-1), _marks(uniques)
-    else:
-        codes, labels = _quantile_bins(values, n_bins)
-        if len(labels) < 2:
-            return None
+    bin_labels, labels = _segment_bins(array, n_bins, MAX_BINS)
+    if len(labels) < n_bins and len(np.unique(array)) > MAX_BINS:
+        # Ties left fewer bins than asked for; a dominant value may be the
+        # reason, so try giving it a bin of its own and keep the richer cut.
+        spiked = _spike_bins(array, n_bins)
+        if spiked is not None and len(spiked[1]) > len(labels):
+            bin_labels, labels = spiked
+    if len(labels) < 2:
+        return None
 
-    bin_labels = np.asarray(labels, dtype=object)[codes]
     by_label = {
         result.value: result
         for result in build_value_results(

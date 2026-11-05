@@ -24,8 +24,10 @@
   rate, baseline rate, and lift per bin, labelled as intervals like
   `(38.4, 44.1]`. When ties collapse bins, the cut is retried with fewer bins,
   and a feature with five or fewer distinct values gets one bin per value
-  (labelled `0`, `1`, ...). `FeatureResult.values` is `None` only when a
-  feature has too few rows or is constant.
+  (labelled `0`, `1`, ...). A single value holding more rows than one bin
+  (the zeros in a zero-inflated column) gets its own bin, labelled by the
+  value, with the rows below and above it binned separately. `FeatureResult.values`
+  is `None` only when a feature has too few rows or is constant.
 
 ## 0.1.0a2 — Polars input support
 

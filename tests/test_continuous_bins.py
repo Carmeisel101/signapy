@@ -71,6 +71,41 @@ class TestBinnedValueResults:
         assert 2 <= len(values) < MAX_BINS
         assert sum(v.support for v in values) == 100
 
+    @staticmethod
+    def _bins(x):
+        y = [False, True] * (len(x) // 2)
+        values = build_binned_value_results(x, y, positive_class=True)
+        return None if values is None else [(v.value, v.support) for v in values]
+
+    def test_dominant_value_gets_its_own_bin(self):
+        bins = self._bins([0.0] * 90 + [float(i) for i in range(1, 11)])
+        assert bins[0] == ("0", 90)
+        assert [support for _, support in bins[1:]] == [5, 5]
+
+    def test_dominant_value_in_the_middle_splits_the_range_around_it(self):
+        x = [0.0] * 50 + list(range(-20, 0)) + list(range(1, 31))
+        bins = self._bins(x)
+        labels = [label for label, _ in bins]
+        assert labels[2] == "0"
+        assert sum(support for _, support in bins) == len(x)
+        assert all(label.startswith(("[", "(")) for label in labels if label != "0")
+        # Intervals below the spike end at it, and those above start after it.
+        assert all("-" in label for label in labels[:2])
+        assert not any("-" in label for label in labels[3:])
+
+    def test_dominant_value_at_the_top(self):
+        bins = self._bins(list(range(1, 21)) + [100.0] * 60)
+        assert bins[-1] == ("100", 60)
+        assert sum(support for _, support in bins) == 80
+
+    def test_tiny_remainder_is_one_bin_not_many(self):
+        bins = self._bins([0.0] * 95 + [1.0, 2, 3, 4, 5, 6, 7])
+        assert bins == [("0", 95), ("[1, 7]", 7)]
+
+    def test_spike_not_used_when_quantiles_already_give_full_bins(self):
+        x = list(range(100))
+        assert len(self._bins(x)) == MAX_BINS
+
     def test_too_few_rows_returns_none(self):
         x = list(range(9))
         y = [False] * 5 + [True] * 4

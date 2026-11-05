@@ -316,7 +316,10 @@ For a continuous feature, `discover()` first cuts the feature into up to
 five quantile bins (roughly equal row counts; ties can make them unequal,
 see each bin's `support`; if ties collapse bins, the cut is retried with
 4, 3, then 2 bins, and a feature with five or fewer distinct values gets one
-bin per value, labelled by the value) and then applies `categorical_lift` to the
+bin per value, labelled by the value; a single value holding more rows than
+one bin, such as the zeros in a zero-inflated column, becomes its own bin
+labelled by the value, with the rows below and above it binned separately so
+no interval overlaps it) and then applies `categorical_lift` to the
 bins, so each bin gets support, target rate, baseline rate, and lift just
 like a categorical value. Labels are intervals — `"[10, 20]"` for the first
 bin, `"(20, 30]"` for the rest — in ascending order, so reading the bins

@@ -220,7 +220,8 @@ how strong it is overall.
 - **Continuous features** appear as up to five quantile bins of roughly equal
   size (heavy ties can make them unequal, so check each tile's width),
   labelled like `(38.4, 44.1]` (a feature with five or fewer distinct values
-  gets one tile per value instead), read left to right: steadily rising lift is a
+  gets one tile per value instead; a dominant value such as a column's many
+  zeros gets its own tile, labelled `0`, with the rest binned around it), read left to right: steadily rising lift is a
   roughly linear relationship, a mid-range peak is non-monotonic.
 - **Label panel** (left): the feature name, its effect size (`V` for Cramér's
   V, `ρ` for Spearman, `r` for point-biserial), and its `n`. Long names wrap

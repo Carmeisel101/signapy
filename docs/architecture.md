@@ -522,7 +522,8 @@ def discover(
   precision until distinct. Each bin then flows through `categorical_lift`
   like any value, in ascending order. `FeatureResult.values` is `None` for a
   continuous feature only when it cannot be split into at least two bins
-  (too few rows, or a constant feature) — "not performed", never an
+  (too few rows, or a constant feature; a dominant value gets its own bin,
+  so zero-inflated features still split) — "not performed", never an
   empty tuple. Bin count and strategy are not yet user-configurable.
 - **`FeatureResult.details` typing widened** from `Mapping[str, float]` to
   `Mapping[str, float | int]`: continuous `details` legitimately mixes
