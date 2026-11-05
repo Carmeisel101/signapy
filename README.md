@@ -119,7 +119,7 @@ report = signapy.discover(
 
 report.feature("continuous_measurement").effect_size  # point-biserial coefficient
 report.feature("continuous_measurement").p_value  # its p-value
-report.feature("continuous_measurement").values  # per-quantile-bin lift
+report.feature("continuous_measurement").values  # per-bin lift
 ```
 
 An **ordinal** feature needs an explicit order — SignaPy never infers one,
@@ -215,11 +215,13 @@ how strong it is overall.
   A thin tile means little data behind it.
 - **Tile color** is the value's lift against the baseline target rate, on a
   scale centered at 1 (white). Red is over-represented in the positive class,
-  blue is under-represented. The lift and support percentage are printed in
-  the tile when it is wide enough.
+  blue is under-represented. Wide tiles print the value, lift, and support
+  percentage; mid-width tiles print the same three in a smaller size.
 - **Continuous features** appear as up to five quantile bins of roughly equal
   size (heavy ties can make them unequal, so check each tile's width),
-  labelled like `(38.4, 44.1]`, read left to right: steadily rising lift is a
+  labelled like `(38.4, 44.1]` (a feature with five or fewer distinct values
+  gets one tile per value instead; a dominant value such as a column's many
+  zeros gets its own tile, labelled `0`, with the rest binned around it), read left to right: steadily rising lift is a
   roughly linear relationship, a mid-range peak is non-monotonic.
 - **Label panel** (left): the feature name, its effect size (`V` for Cramér's
   V, `ρ` for Spearman, `r` for point-biserial), and its `n`. Long names wrap
@@ -230,9 +232,12 @@ how strong it is overall.
   comparable, so rows are grouped by measure (the group with the strongest
   feature first) and sorted by absolute effect size within each group. Read
   rankings within a group, not across groups.
-- **Long value labels** are cut to 20 characters with an ellipsis, and tiles
-  too narrow for text are left unlabeled. The full labels are always in
-  `report.to_dict()`.
+- **Long value labels** are cut to 20 characters with an ellipsis. The full
+  labels are always in `report.to_dict()`.
+- **Narrow tiles** (under about 0.6 inches) are too thin for text, so they
+  are listed in a strip below the rows as `feature: value lift × · support`,
+  strongest departure from baseline first. The strip shows at most 12; the
+  rest are in `report.to_dict()`.
 - **Large reports:** `report.plot(max_features=N)` draws only the `N` features
   with the largest absolute effect size and says so in the figure. The
   notebook view does this automatically for the top 30.
@@ -256,7 +261,7 @@ print(json.dumps(report.to_dict(), indent=2))
 `to_dict()` returns plain, JSON-safe data: for each feature the
 `feature_type`, `effect_size_method` and `effect_size`, `p_value`, `n`,
 `missing_rate`, `details`, and `values` (per-category, per-level, or
-per-quantile-bin `support`, `target_rate`, `baseline_rate`, and `lift`; `None`
+per-continuous-bin `support`, `target_rate`, `baseline_rate`, and `lift`; `None`
 when a feature has no value-level results). Category labels are always
 encoded to JSON-safe data: timestamps and dates become ISO-8601 strings,
 timedeltas ISO-8601 durations, tuples lists, and other objects (`Decimal`,
@@ -285,9 +290,10 @@ against a binary target** (see [v0.1 scope](#v01-scope) below):
   `values` (support, target rate, baseline rate, lift), in order of first
   appearance. Continuous features get a point-biserial correlation, its
   p-value, group counts/means in `details`, and `values` over up to five
-  quantile bins of roughly equal size (labelled like `(38.4, 44.1]`), showing *where
-  within the range* the signal lives; `values` is `None` only when the
-  feature has too few rows or distinct values to bin (see
+  adaptive bins (usually quantile intervals like `(38.4, 44.1]`; see
+  [Reading the mosaic](#reading-the-mosaic)), showing *where within the range*
+  the signal lives; `values` is `None` only when the
+  feature has too few rows or is constant (see
   [`docs/architecture.md`](docs/architecture.md)).
   Ordinal features get a Spearman rank correlation, its p-value, and the
   same per-level `values` as categorical — but in the feature's *declared*
@@ -323,7 +329,8 @@ Implemented so far:
   (p-value), and per-category support/target rate/baseline rate/lift
 - **Continuous features:** point-biserial correlation (effect size and
   p-value), group counts/means, and per-bin support/target rate/baseline
-  rate/lift over up to five quantile bins
+  rate/lift over up to five adaptive bins (quantiles for ordinary continuous
+  data, with tied low-cardinality and dominant values handled explicitly)
 - **Ordinal features:** Spearman rank correlation (effect size and
   p-value), and per-level support/target rate/baseline rate/lift in
   declared category order; requires an explicit ordered `Categorical`

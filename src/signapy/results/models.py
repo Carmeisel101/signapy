@@ -390,8 +390,8 @@ class DiscoveryReport:
         strict ranking). Within a row,
         each value is a tile whose width is its support and whose colour is
         its lift against the baseline target rate. Continuous features appear as
-        quantile bins; a feature with no value-level results (too few rows or
-        distinct values to bin) appears as a single neutral tile.
+        adaptive bins; a feature with no value-level results (too few rows or a
+        constant value) appears as a single neutral tile.
 
         Args:
             max_features: Plot only the ``max_features`` features with the

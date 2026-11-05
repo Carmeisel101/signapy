@@ -50,12 +50,75 @@ class TestBinnedValueResults:
         assert top.target_rate == pytest.approx(in_top["y"].mean())
         assert top.baseline_rate == pytest.approx(df["y"].mean())
 
-    def test_ties_reduce_bin_count_instead_of_failing(self):
+    def test_few_distinct_values_get_one_bin_each(self):
         x = [0] * 60 + [1] * 20 + [2] * 20
+        y = [False, True] * 50
+        values = build_binned_value_results(x, y, positive_class=True)
+        assert [v.value for v in values] == ["0", "1", "2"]
+        assert [v.support for v in values] == [60, 20, 20]
+
+    def test_two_distinct_values_give_two_bins(self):
+        x = [0] * 50 + [1] * 50
+        y = [False, True] * 50
+        values = build_binned_value_results(x, y, positive_class=True)
+        assert [v.support for v in values] == [50, 50]
+
+    def test_heavy_ties_retry_with_fewer_bins(self):
+        # 6 distinct values, so no per-value bins; 5 quantile bins collapse.
+        x = [0.0] * 40 + [1.0] * 20 + [2.0] * 20 + [3.0] * 10 + [4.0] * 5 + [5.0] * 5
         y = [False, True] * 50
         values = build_binned_value_results(x, y, positive_class=True)
         assert 2 <= len(values) < MAX_BINS
         assert sum(v.support for v in values) == 100
+
+    @staticmethod
+    def _bins(x):
+        y = [False, True] * (len(x) // 2)
+        values = build_binned_value_results(x, y, positive_class=True)
+        return None if values is None else [(v.value, v.support) for v in values]
+
+    def test_dominant_value_gets_its_own_bin(self):
+        bins = self._bins([0.0] * 90 + [float(i) for i in range(1, 11)])
+        assert bins[0] == ("0", 90)
+        assert [support for _, support in bins[1:]] == [5, 5]
+
+    def test_dominant_value_in_the_middle_splits_the_range_around_it(self):
+        x = [0.0] * 50 + list(range(-20, 0)) + list(range(1, 31))
+        bins = self._bins(x)
+        labels = [label for label, _ in bins]
+        assert labels[2] == "0"
+        assert sum(support for _, support in bins) == len(x)
+        assert all(label.startswith(("[", "(")) for label in labels if label != "0")
+        # Intervals below the spike end at it, and those above start after it.
+        assert all("-" in label for label in labels[:2])
+        assert not any("-" in label for label in labels[3:])
+
+    def test_dominant_value_at_the_top(self):
+        bins = self._bins(list(range(1, 21)) + [100.0] * 60)
+        assert bins[-1] == ("100", 60)
+        assert sum(support for _, support in bins) == 80
+
+    def test_dominant_value_is_isolated_even_when_quantile_edges_survive(self):
+        # Five quantile edges stay distinct here, yet 30 would share a bin.
+        x = [*range(30), *[30.0] * 21, *range(31, 80)]
+        bins = self._bins(x)
+        assert ("30", 21) in bins
+        assert sum(support for _, support in bins) == len(x)
+
+    def test_nearby_values_never_share_a_label(self):
+        x = [0.9996] + [1.0004] * 90 + list(range(2, 11))
+        bins = self._bins(x)
+        labels = [label for label, _ in bins]
+        assert len(set(labels)) == len(labels)
+        assert sum(support for _, support in bins) == len(x)
+
+    def test_tiny_remainder_is_one_bin_not_many(self):
+        bins = self._bins([0.0] * 95 + [1.0, 2, 3, 4, 5, 6, 7])
+        assert bins == [("0", 95), ("[1, 7]", 7)]
+
+    def test_spike_not_used_when_quantiles_already_give_full_bins(self):
+        x = list(range(100))
+        assert len(self._bins(x)) == MAX_BINS
 
     def test_too_few_rows_returns_none(self):
         x = list(range(9))

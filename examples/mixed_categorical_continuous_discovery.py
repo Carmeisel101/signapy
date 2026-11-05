@@ -87,7 +87,7 @@ def print_continuous(result: FeatureResult) -> None:
         f"negative: n={details['negative_n']}, mean={details['negative_mean']:.4f}  "
         f"mean_difference={details['mean_difference']:.4f}"
     )
-    # Continuous features are localized by quantile bins: each bin is a value
+    # Continuous features are localized by adaptive bins: each bin is a value
     # with its own support, target rate, and lift, in ascending order. Reading
     # the bins left to right shows where in the range the signal lives
     # (see docs/metrics.md, section 6a).
