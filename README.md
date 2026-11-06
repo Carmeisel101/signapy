@@ -1,8 +1,12 @@
-# SignaPy
+<h1 align="center">
+  <img src="https://raw.githubusercontent.com/Carmeisel101/signapy/main/docs/assets/signapy-logo.png" alt="SignaPy" width="480">
+</h1>
 
-[![PyPI version](https://img.shields.io/pypi/v/signapy.svg)](https://pypi.org/project/signapy/)
-[![Python versions](https://img.shields.io/pypi/pyversions/signapy.svg)](https://pypi.org/project/signapy/)
-[![License](https://img.shields.io/pypi/l/signapy.svg)](https://pypi.org/project/signapy/)
+<p align="center">
+  <a href="https://pypi.org/project/signapy/"><img src="https://img.shields.io/pypi/v/signapy.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/signapy/"><img src="https://img.shields.io/pypi/pyversions/signapy.svg" alt="Python versions"></a>
+  <a href="https://pypi.org/project/signapy/"><img src="https://img.shields.io/pypi/l/signapy.svg" alt="License"></a>
+</p>
 
 **SignaPy is an exploratory feature-discovery library for labeled datasets.**
 

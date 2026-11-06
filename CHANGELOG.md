@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added the SignaPy logo (`docs/assets/signapy-logo.png`) to the README.
 - `DiscoveryReport` gains `to_dict()`, a terminal `str()` table, a notebook
   HTML repr, and `plot()`.
 - `plot()` renders SignaPy's signature mosaic (tile width = support, colour =
