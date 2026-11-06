@@ -64,6 +64,16 @@ SignaPy is available from PyPI and supports Python 3.10 through 3.14.
 pip install signapy
 ```
 
+Plotting is an optional extra, so the default install stays small. To use
+`report.plot()` and see the mosaic in notebooks, install `matplotlib` with it:
+
+```bash
+pip install "signapy[plot]"
+```
+
+Without the extra, everything else works and `report.plot()` raises an
+`ImportError` that says how to install it; notebooks show the summary table.
+
 The current release is `0.1.0`. To install the exact current version, which
 is useful when reproducibility is important:
 
@@ -205,7 +215,7 @@ the analysis. The same report has several explicit and notebook-native views:
 | Plain data for scripts, JSON, or agents | `report.to_dict()` |
 | A quick look in a terminal | `print(report)` |
 | The mosaic and a summary table in Jupyter or Databricks | `report` as the last line of a cell (table only without matplotlib) |
-| The mosaic (needs `pip install signapy[plot]`) | `report.plot()` |
+| The mosaic (needs `pip install "signapy[plot]"`) | `report.plot()` |
 
 `print(report)` shows one summary row per feature; the per-value and per-bin
 lift lives in `to_dict()` and `.values`.
