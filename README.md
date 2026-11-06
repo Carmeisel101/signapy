@@ -1,14 +1,19 @@
-# SignaPy
+<h1 align="center">
+  <img src="https://raw.githubusercontent.com/Carmeisel101/signapy/main/docs/assets/signapy-logo.png" alt="SignaPy" width="480">
+</h1>
 
-[![PyPI version](https://img.shields.io/pypi/v/signapy.svg)](https://pypi.org/project/signapy/)
-[![Python versions](https://img.shields.io/pypi/pyversions/signapy.svg)](https://pypi.org/project/signapy/)
-[![License](https://img.shields.io/pypi/l/signapy.svg)](https://pypi.org/project/signapy/)
+<p align="center">
+  <a href="https://pypi.org/project/signapy/"><img src="https://img.shields.io/pypi/v/signapy.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/signapy/"><img src="https://img.shields.io/pypi/pyversions/signapy.svg" alt="Python versions"></a>
+  <a href="https://pypi.org/project/signapy/"><img src="https://img.shields.io/pypi/l/signapy.svg" alt="License"></a>
+</p>
 
 **SignaPy is an exploratory feature-discovery library for labeled datasets.**
 
 Long-term mission: *find, quantify, localize, and validate predictive signal.*
 
-> **Status: alpha (`0.1.0a2`).** `signapy.discover()` works against
+> **Status: beta (`0.1.0`).** The API may still change before 1.0.
+> `signapy.discover()` works against
 > **binary targets** with **categorical, continuous, and ordinal features**
 > today. Everything under [Planned next](#planned-next) — other
 > feature/target types, interactions, stability, and more — is not
@@ -59,11 +64,21 @@ SignaPy is available from PyPI and supports Python 3.10 through 3.14.
 pip install signapy
 ```
 
-The current release is an alpha (`0.1.0a2`). To install the exact current
-version, which is useful when reproducibility is important:
+Plotting is an optional extra, so the default install stays small. To use
+`report.plot()` and see the mosaic in notebooks, install `matplotlib` with it:
 
 ```bash
-pip install signapy==0.1.0a2
+pip install "signapy[plot]"
+```
+
+Without the extra, everything else works and `report.plot()` raises an
+`ImportError` that says how to install it; notebooks show the summary table.
+
+The current release is `0.1.0`. To install the exact current version, which
+is useful when reproducibility is important:
+
+```bash
+pip install signapy==0.1.0
 ```
 
 See the [SignaPy PyPI project page](https://pypi.org/project/signapy/) for
@@ -200,7 +215,7 @@ the analysis. The same report has several explicit and notebook-native views:
 | Plain data for scripts, JSON, or agents | `report.to_dict()` |
 | A quick look in a terminal | `print(report)` |
 | The mosaic and a summary table in Jupyter or Databricks | `report` as the last line of a cell (table only without matplotlib) |
-| The mosaic (needs `pip install signapy[plot]`) | `report.plot()` |
+| The mosaic (needs `pip install "signapy[plot]"`) | `report.plot()` |
 
 `print(report)` shows one summary row per feature; the per-value and per-bin
 lift lives in `to_dict()` and `.values`.
@@ -355,9 +370,10 @@ design.
 ## Versioning
 
 SignaPy uses [PEP 440](https://peps.python.org/pep-0440/) versions and will
-follow [semantic versioning](https://semver.org/) for releases. Pre-release
-development builds use `.devN` suffixes. The current alpha release is
-`0.1.0a2`. The version is defined once, in `src/signapy/__init__.py`.
+follow [semantic versioning](https://semver.org/) for releases. Until 1.0,
+minor releases may change the API. Pre-release builds use PEP 440 suffixes
+such as `aN`, `bN`, or `.devN`. The current release is `0.1.0`. The version
+is defined once, in `src/signapy/__init__.py`.
 
 ## License
 
