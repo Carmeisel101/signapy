@@ -1,6 +1,6 @@
 # Contributing to SignaPy
 
-Thanks for your interest in SignaPy. It's an alpha library, so the API may
+Thanks for your interest in SignaPy. It's a pre-1.0 library, so the API may
 still change, and feedback at this stage is especially useful: bug reports,
 questions about the statistics, and ideas are all welcome.
 

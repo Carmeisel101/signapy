@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — first standard release (2026-11-05)
+
+First release that is not an alpha. The API may still change before 1.0.
 
 - Added the SignaPy logo (`docs/assets/signapy-logo.png`) to the README.
 - `DiscoveryReport` gains `to_dict()`, a terminal `str()` table, a notebook
